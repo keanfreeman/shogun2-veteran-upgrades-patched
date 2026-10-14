@@ -1,15 +1,21 @@
-"""Build ability_patch_test.pack: data for the first in-game test of the DLL patch.
+"""Build ability_patch_test.pack: data for in-game tests of the DLL patch (clone design).
 
-What the pack does (vanilla Sengoku campaign, no other mods):
-  - War Cry becomes research-gated (requires_effect_enabling = True). Vanilla has no research that
-    enables it, so without the patch NOBODY has War Cry (the warrior monks lose theirs).
-  - War Cry is attached to Yari Ashigaru and to Yari Samurai (control).
-  - Shimazu's clan trait bundle (t_shimazu) gains an effect that sets general_aoe_mod = 1 (bit 0 =
-    War Cry, see abilities.py) on Yari Ashigaru.
-Expected with the patch: Shimazu Yari Ashigaru have War Cry (existing and new ones); other clans'
-Yari Ashigaru don't; nobody's Yari Samurai do; warrior monks don't.
+Vanilla Sengoku campaign as Shimazu, no other mods. Nothing vanilla is changed: the pack adds CLONE
+ability records (abpatch_<ability>, supersedes_ability = the real one, requires_effect_enabling =
+True) and attaches them to Yari Ashigaru (and one to Yari Samurai as a control). Shimazu's clan trait
+bundle (t_shimazu) sets general_aoe_mod on Yari Ashigaru to the War Cry + Banzai bits.
 
-Usage: .venv/bin/python testpack/build_testpack.py [--install]
+Expected with `patch.py apply --diag`, on Shimazu Yari Ashigaru (old and new units):
+  War Cry       bit set                          -> granted
+  Banzai        bit set, but research not done   -> NOT granted (until Banzai is researched)
+  Stand Firm    diagnostic "always"              -> granted, for every clan
+  Second Wind   diagnostic "general_aoe_mod != 0"-> granted
+  Rapid Advance diagnostic "melee_attack_mod != 0" (+1 for Shimazu below) -> granted
+Other clans' Yari Ashigaru: Stand Firm only. Yari Samurai (War Cry clone, no bit): nothing new.
+Warrior monks keep their own War Cry. Without the patch: nothing changes at all.
+With `patch.py apply` (no --diag) the three diagnostics follow the bit rule, so they disappear.
+
+Usage: <lab venv python> testpack/build_testpack.py [--install]
 Needs the Veteran Upgrades lab checkout for its DB/pack tools (SHOGUN2_LAB, default ~/projects/shogun2_modding).
 """
 import os, shutil, sys
@@ -29,27 +35,22 @@ LOCAL = os.path.join(GAME_DATA, "local_en.pack")
 PACK = "ability_patch_test.pack"
 NAME = "abpatch_test"
 
-ABILITY = "warcry"
 GRANTED_UNIT = "Inf_Spear_Yari_Ashigaru"
 CONTROL_UNIT = "Inf_Spear_Yari_Samurai"
 CLAN_BUNDLE = "t_shimazu"
-EFFECT = "abpatch_test_yari_warcry"
-# Diagnostic probes (need `patch.py apply --diag`), all on Yari Ashigaru, rule per abilities.DIAG_MODES:
-#   Stand Firm    - always granted       -> the routine runs and maps abilities correctly
-#   Second Wind   - general_aoe_mod != 0 -> the general_aoe_mod lookup finds our effect
-#   Rapid Advance - melee_attack_mod != 0 (MELEE_EFFECT, Shimazu only) -> unit_record lookups work at all
-PROBES = ["stand_firm", "second_wind", "rapid_advance"]
+BIT_ABILITIES = ["warcry", "banzai"]                      # bits set for Shimazu Yari Ashigaru
+PROBES = ["stand_firm", "second_wind", "rapid_advance"]   # diagnostic rules (abilities.DIAG_MODES)
+CONTROL_ABILITY = "warcry"
+EFFECT = "abpatch_test_yari_bits"
 MELEE_EFFECT = "abpatch_test_yari_melee"
+
+
+def clone_key(ability):
+    return "abpatch_" + ability
 
 
 def vanilla(table):
     return load_file(DATA, f"db\\{table}\\{table[:-len('_tables')]}")
-
-
-def full_copy(table, rows_fn):
-    """The whole vanilla table, edited, under the vanilla file name (replaces it)."""
-    ver, header, rows = vanilla(table)
-    return f"db\\{table}\\{table[:-len('_tables')]}", encode(table, ver, rows_fn(rows), header)
 
 
 def ours(table, rows):
@@ -58,41 +59,50 @@ def ours(table, rows):
     return f"db\\{table}\\{NAME}", encode(table, ver, rows, header)
 
 
-def gate(rows):
-    keys = {ABILITY, *PROBES}
-    for r in rows:
-        if r["key"] in keys:
-            r["requires_effect_enabling"] = True
-    assert keys <= {r["key"] for r in rows}
-    return rows
+def clone_rows(table, abilities, edit=None):
+    """Copies of the real abilities' rows in `table`, keyed by the clone key."""
+    _, _, rows = vanilla(table)
+    by_key = {r["key"]: r for r in rows}
+    out = []
+    for a in abilities:
+        if a in by_key:
+            r = dict(by_key[a], key=clone_key(a))
+            out.append(edit(r, a) if edit else r)
+    return out
 
 
 def build():
+    clones = sorted(set(BIT_ABILITIES + PROBES + [CONTROL_ABILITY]))
     _, _, effects = vanilla("effects_tables")
     template = next(r for r in effects if r["effect"] == "clan_trait_shimazu_cheap_samurai")
+    mask = sum(1 << bit(a) for a in BIT_ABILITIES)
+    ability_rows = clone_rows("unit_abilities_tables", clones,
+                              lambda r, a: dict(r, supersedes_ability=a, requires_effect_enabling=True))
+    assert len(ability_rows) == len(clones)
     files = [
-        full_copy("unit_abilities_tables", gate),
-        ours("unit_to_unit_abilities_junctions_tables", [
-            {"unit_name": GRANTED_UNIT, "ability": ABILITY},
-            {"unit_name": CONTROL_UNIT, "ability": ABILITY},
-        ] + [{"unit_name": GRANTED_UNIT, "ability": a} for a in PROBES]),
+        ours("unit_abilities_tables", ability_rows),
+        ours("unit_special_abilities_tables", clone_rows("unit_special_abilities_tables", clones)),
+        ours("unit_info_card_abilities_strings_tables", clone_rows("unit_info_card_abilities_strings_tables", clones)),
+        ours("unit_to_unit_abilities_junctions_tables",
+             [{"unit_name": GRANTED_UNIT, "ability": clone_key(a)} for a in BIT_ABILITIES + PROBES]
+             + [{"unit_name": CONTROL_UNIT, "ability": clone_key(CONTROL_ABILITY)}]),
         ours("effects_tables", [dict(template, effect=EFFECT), dict(template, effect=MELEE_EFFECT)]),
         ours("effect_bonus_value_unit_record_junctions_tables", [
             {"bonus_value_id": "general_aoe_mod", "effect": EFFECT, "unit_record_key": GRANTED_UNIT},
             {"bonus_value_id": "melee_attack_mod", "effect": MELEE_EFFECT, "unit_record_key": GRANTED_UNIT},
         ]),
         ours("effect_bundles_to_effects_junctions_tables", [
-            {"effect_bundle_key": CLAN_BUNDLE, "effect_key": EFFECT, "value": float(1 << bit(ABILITY))},
+            {"effect_bundle_key": CLAN_BUNDLE, "effect_key": EFFECT, "value": float(mask)},
             {"effect_bundle_key": CLAN_BUNDLE, "effect_key": MELEE_EFFECT, "value": 1.0},
         ]),
     ]
     ver, _ = read_loc(extract(LOCAL, "text\\db\\effects.loc"))
     files.append(("text\\db\\abpatch_test_effects.loc", write_loc(
-        [("effects_description_" + EFFECT, "Ability patch test: Yari Ashigaru gain War Cry", 1),
+        [("effects_description_" + EFFECT, "Ability patch test: Yari Ashigaru unlock War Cry and Banzai", 1),
          ("effects_description_" + MELEE_EFFECT, "%+n melee attack for Yari Ashigaru (ability patch test)", 1)], ver)))
     out = os.path.join(HERE, PACK)
     write_pack(out, files, pack_type="mod")
-    print("wrote", out)
+    print("wrote", out, f"(general_aoe_mod mask {mask})")
     for name, data in sorted(files):
         print(f"  {name} ({len(data)} bytes)")
     return out
