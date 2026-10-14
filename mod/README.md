@@ -6,7 +6,7 @@
 > `veteran_upgrades/veteran_upgrades_ap.pack`; needs `../abilities.py` and `../detect.lua`.
 > Don't enable it together with another Veteran Upgrades pack (they all extend export_advice.lua).
 > **Multiplayer is switched off while it is enabled** (Avatar Conquest and Multiplayer Campaign read
-> "Off: Veteran Upgrades mod" and do nothing): the patched DLL risks a VAC ban online, and multiplayer
+> "Off to keep your account safe" and do nothing): the patched DLL risks a VAC ban online, and multiplayer
 > campaigns need identical data anyway. To play online, disable this mod and restore the DLL
 > (`patch.py restore` or Steam's "Verify integrity of game files"). The pack replaces the main-menu
 > layout and `text/db/ui_component_localisation.loc` (English), so mods that edit those conflict.

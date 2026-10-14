@@ -689,9 +689,9 @@ def loc_file(vanilla_path, name, extra):
 MENU_LAYOUT = "ui\\frontend ui\\main"
 MENU_RENAMES = {b"multiplayer": b"vu_mp_off_1", b"mp_campaign": b"vu_mp_off_2"}   # Avatar Conquest, MP campaign
 MENU_TEXTS = {
-    "ui_component_localisation_localised_string_mp_tx_NewState_Text_75002f": "Multiplayer disabled",
-    "ui_component_localisation_localised_string_button_txt_NewState_Text_5b006e": "Off: Veteran Upgrades mod",
-    "ui_component_localisation_localised_string_button_txt_NewState_Text_430007": "Off: Veteran Upgrades mod",
+    "ui_component_localisation_localised_string_mp_tx_NewState_Text_75002f": "Multiplayer: off (VU mod)",
+    "ui_component_localisation_localised_string_button_txt_NewState_Text_5b006e": "Off to keep your account safe",
+    "ui_component_localisation_localised_string_button_txt_NewState_Text_430007": "Off to keep your account safe",
 }
 
 
