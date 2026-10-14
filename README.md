@@ -78,4 +78,5 @@ to expect in game. Needs the Veteran Upgrades lab checkout for its DB tools.
 - 2026-10-14, v1 (gated real abilities): Shimazu Yari Ashigaru gained War Cry, Second Wind, Rapid
   Advance (bit / aoe / melee rules) and Stand Firm (always) in the pre-battle preview and in battle;
   other clans' Yari Ashigaru only Stand Firm.
-- v2 (clones): pending.
+- 2026-10-14, v2 (clones, diagnostic build): Shimazu Yari Ashigaru had War Cry, Second Wind, Rapid
+  Advance and Stand Firm in battle; Banzai (bit set, not researched) correctly absent.
