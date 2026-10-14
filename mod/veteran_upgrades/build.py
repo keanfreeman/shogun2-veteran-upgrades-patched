@@ -87,8 +87,11 @@ RULE_ANY = {"warcry", "rally", "inspire_unit", "stand_firm", "second_wind", "ban
 RULE_MISSILE = {"rapid_volley", "range_effect"}                    # anything that shoots (not artillery)
 RULE_BOW = {"flaming_arrows_ability", "whistling_arrows_ability"}   # they swap the unit's arrows
 RULE_SAME_KIND = {"pike_wall_formation", "pike_square_formation", "wedge_formation", "cantabrian_circle",
-                  "kneel_fire_ability", "rank_fire", "suppression_fire", "bamboo_wall", "pavisse_deployable",
+                  "kneel_fire_ability", "rank_fire", "suppression_fire",
                   "active_hiding", "blinding_grenade", "shrapnel_shot"}   # formations/kit: only unit kinds that have it in vanilla
+# Not offered: bamboo_wall and pavisse_deployable. FUN_1019e580 allows these deployables only in some
+# battle types by comparing the LIST ENTRY's key with those names; a clone (vuNN_...) never matches,
+# so it would be granted in every battle type.
 RULE_ABILITIES = RULE_ANY | RULE_MISSILE | RULE_BOW | RULE_SAME_KIND
 MAX_LINES = 28   # nodes in the MP skill-tree popup
 # Upgrades EVERY unit type gets, whether or not its multiplayer tree has them (from the MoSS edition):
@@ -382,8 +385,10 @@ def build_catalog(camp):
         lines = add_universal_lines(merge_stat_lines(lines), keys, available)
         room = MAX_LINES - len(lines)
         if len(abilities) > room:
-            print(f"  {camp['id']}: {base}: {len(abilities)} abilities, room for {room}; dropped {abilities[room:]}")
+            print(f"  WARNING {camp['id']}: {base}: {len(abilities)} abilities, room for {room}; dropped {abilities[room:]}")
             abilities = abilities[:max(room, 0)]
+        fam_stub = {"units": keys}
+        abilities = [ab for ab in abilities if ability_targets(fam_stub, ab)]   # every unit has it natively: nothing to sell
         for ab in abilities:
             gated = bool(ABILITIES[ab]["requires_effect_enabling"])
             lines["ab_" + ab] = {"key": "ab_" + ab, "label": ABILITIES[ab]["bullet_text"], "bonus": "ability",

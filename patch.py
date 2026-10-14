@@ -5,6 +5,7 @@ Usage (from this folder, with the venv):
   .venv/bin/python patch.py apply             # back up the vanilla DLL, then patch it in place
   .venv/bin/python patch.py restore           # put the vanilla DLL back
   .venv/bin/python patch.py show              # print the patch bytes, disassembled (changes nothing)
+  apply/restore refuse a DLL that is neither vanilla nor patched by this script (--force overrides)
 
 What it changes (empire.retail.dll, Steam build sha256 022fae2e...f874f5):
   The unit-capabilities builder (FUN_1019e580) walks a unit type's ability list and grants each
@@ -262,23 +263,36 @@ def state():
     return "unknown (an older revision of this patch, or another change)"
 
 
+def ours(path):
+    """Does this DLL carry our signature (any patch version)? Then it was made from the vanilla backup."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(file_offsets()["signature"])
+            return f.read(len(b"VU_ABILITY_PATCH ")) == b"VU_ABILITY_PATCH "
+    except OSError:
+        return False
+
+
 def cmd_status():
     print(f"{DLL}\n  state: {state()}")
     print(f"  backup: {'present' if os.path.exists(BACKUP) else 'none'} ({BACKUP})")
 
 
-def cmd_apply():
-    """Patch from the vanilla bytes: the backup if there is one (so a DLL patched by an older
-    revision of this script is simply replaced), otherwise the current DLL if it is vanilla."""
+def cmd_apply(force=False):
+    """Patch from the vanilla bytes. The game DLL must be vanilla, or patched by this script (any
+    revision; then the vanilla backup is the source). Anything else - e.g. a Steam update - is refused
+    unless --force, so a stale backup never overwrites a newer DLL."""
     if state() == "patched":
         print("already patched"); return
-    if os.path.exists(BACKUP) and sha256(BACKUP) == VANILLA_SHA256:
-        src = BACKUP
-    elif sha256(DLL) == VANILLA_SHA256:
+    dll_vanilla = sha256(DLL) == VANILLA_SHA256
+    if not (dll_vanilla or ours(DLL) or force):
+        raise SystemExit("the game DLL is neither vanilla nor patched by this script (a Steam update?); "
+                         "refusing. Verify the game files in Steam, or pass --force")
+    if dll_vanilla:
         shutil.copy2(DLL, BACKUP)
-        src = BACKUP
-    else:
-        raise SystemExit("no vanilla DLL or backup; use Steam 'Verify integrity of game files' first")
+    if not (os.path.exists(BACKUP) and sha256(BACKUP) == VANILLA_SHA256):
+        raise SystemExit("no vanilla backup; use Steam 'Verify integrity of game files' first")
+    src = BACKUP
     with open(src, "rb") as f:
         out = patched_image(f.read())
     tmp = DLL + ".tmp"
@@ -289,7 +303,12 @@ def cmd_apply():
     print("vanilla backup:", BACKUP)
 
 
-def cmd_restore():
+def cmd_restore(force=False):
+    if sha256(DLL) == VANILLA_SHA256:
+        print("already vanilla"); return
+    if not (ours(DLL) or force):
+        raise SystemExit("the game DLL isn't patched by this script (a Steam update?); refusing to replace it "
+                         "with the backup. Use Steam 'Verify integrity of game files', or pass --force")
     if not os.path.exists(BACKUP):
         raise SystemExit("no backup; use Steam 'Verify integrity of game files' instead")
     if sha256(BACKUP) != VANILLA_SHA256:
@@ -300,4 +319,8 @@ def cmd_restore():
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
-    {"status": cmd_status, "apply": cmd_apply, "restore": cmd_restore, "show": cmd_show}[cmd]()
+    force = "--force" in sys.argv
+    if cmd in ("apply", "restore"):
+        {"apply": cmd_apply, "restore": cmd_restore}[cmd](force)
+    else:
+        {"status": cmd_status, "show": cmd_show}[cmd]()

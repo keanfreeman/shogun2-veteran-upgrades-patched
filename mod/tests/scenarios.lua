@@ -75,13 +75,9 @@ check(oda_bundles >= 1, "AI clan bought upgrades (" .. oda_bundles .. " bundles)
 -- Save / load round trip ------------------------------------------------------------------
 F("SavingGame", {})
 check(MOCK.saved.VU_POOL ~= nil and MOCK.saved.VU_AF_oda == 1, "pool and AI state saved")
-local max_al = 0
-for k, v in pairs(MOCK.saved) do
-	if string.sub(k, 1, 5) == "VU_AL" and v > max_al then max_al = v end
-end
-check(max_al < 2 ^ 24, "AI levels saved in chunks that stay below 2^24 (" .. max_al .. ")")
-local oda_before = {}
-for k, v in pairs(MOCK.saved) do if string.find(k, "^VU_AL") then oda_before[k] = v end end
+local oda_before, n_ax = {}, 0
+for k, v in pairs(MOCK.saved) do if string.find(k, "^VU_AX_oda__") then oda_before[k] = v n_ax = n_ax + 1 end end
+check(n_ax >= 1, "AI levels saved per line key (" .. n_ax .. " values)")
 local saved_pool = MOCK.saved.VU_POOL
 F("LoadingGame", {})
 F("UICreated", { string = "Campaign UI", component = MOCK.root })

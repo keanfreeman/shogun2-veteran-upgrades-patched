@@ -374,7 +374,11 @@ local function vu_layout(fam)
 			local _, ok_y = UIComponent(vu_child(VU.panel_addr, "button_ok")):Position()
 			local nh = UIComponent(VU.nodes[1].addr):Height()
 			local fit = math.floor((ok_y - 10 - top_y - nh) / max_row)
-			if fit > 0 and fit < row_h then row_h = fit end
+			if fit < row_h then
+				-- Never closer than a node's height: overlapping nodes are worse than a row under the bar.
+				if fit < nh then vu_log("layout:", fam.id, max_row + 1, "rows don't fit; spacing", nh, "instead of", fit) end
+				row_h = math.max(fit, nh)
+			end
 		end)
 	end
 	VU.geom = { top_y = top_y, row_h = row_h }
@@ -1046,11 +1050,10 @@ end
 
 local vu_ai_spend, vu_ai_clan   -- defined with the points code below
 
--- AI levels are saved packed base 16 (levels go up to 10), VU_AL_CHUNK lines per value: 16^6 - 1 =
--- 2^24 - 1 still fits a saved number exactly (trees here have up to 28 lines).
-local VU_AL_CHUNK = 6
-local function vu_al_key(faction, fam, chunk)   -- chunk 0 keeps the original key
-	return "VU_AL" .. (chunk > 0 and tostring(chunk + 1) or "") .. "_" .. faction .. "__" .. fam.id
+-- AI levels are saved one value per line, keyed by the line's key (not its position), and only
+-- when non-zero, so a later build that adds, drops or reorders lines still loads the right levels.
+local function vu_ai_level_key(faction, fam, line)
+	return "VU_AX_" .. faction .. "__" .. fam.id .. "__" .. line.key
 end
 
 local function VU_OnSavingGame(context)
@@ -1062,7 +1065,7 @@ local function VU_OnSavingGame(context)
 				gi:save_named_value("VU_L_" .. fam.id .. "__" .. line.key, vu_level(fam.id, line.key), context)
 			end
 		end
-		-- AI clans: a flag per clan, its pool, and per unit type it has fought with its levels (chunked).
+		-- AI clans: a flag per clan, its pool, and per unit type it has fought with its non-zero levels.
 		local n = 0
 		for faction, clan in pairs(VU.ai or {}) do
 			gi:save_named_value("VU_AF_" .. faction, 1, context)
@@ -1071,12 +1074,8 @@ local function VU_OnSavingGame(context)
 				if clan.used[fam.id] then
 					local lv = clan.levels[fam.id] or {}
 					gi:save_named_value("VU_AU_" .. faction .. "__" .. fam.id, 1, context)
-					for c = 0, math.ceil(#fam.lines / VU_AL_CHUNK) - 1 do
-						local packed = 0
-						for i = math.min(#fam.lines, (c + 1) * VU_AL_CHUNK), c * VU_AL_CHUNK + 1, -1 do
-							packed = packed * 16 + (lv[fam.lines[i].key] or 0)
-						end
-						gi:save_named_value(vu_al_key(faction, fam, c), packed, context)
+					for _, line in ipairs(fam.lines) do
+						if (lv[line.key] or 0) > 0 then gi:save_named_value(vu_ai_level_key(faction, fam, line), lv[line.key], context) end
 					end
 				end
 			end
@@ -1107,13 +1106,9 @@ local function VU_OnLoadingGame(context)
 					if gi:load_named_value("VU_AU_" .. faction .. "__" .. fam.id, 0, context) == 1 then
 						clan.used[fam.id] = true
 						local lv = {}
-						for c = 0, math.ceil(#fam.lines / VU_AL_CHUNK) - 1 do
-							local packed = gi:load_named_value(vu_al_key(faction, fam, c), 0, context)
-							for i = c * VU_AL_CHUNK + 1, math.min(#fam.lines, (c + 1) * VU_AL_CHUNK) do
-								local l = packed % 16
-								if l > 0 then lv[fam.lines[i].key] = l end
-								packed = (packed - l) / 16
-							end
+						for _, line in ipairs(fam.lines) do
+							local l = gi:load_named_value(vu_ai_level_key(faction, fam, line), 0, context)
+							if l > 0 then lv[line.key] = math.min(l, #line.levels) end
 						end
 						clan.levels[fam.id] = lv
 					end
