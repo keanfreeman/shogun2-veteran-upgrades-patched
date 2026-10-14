@@ -3,7 +3,7 @@
     <lab venv python> tools/release.py            # build + test + dist/ + zip
     <lab venv python> tools/release.py --install  # ...and copy pack + thumbnail into the game's data folder
 
-dist/ gets (and the zip "Veteran Upgrades - Patched Edition <version>.zip" holds the same):
+dist/ gets (and the zip "Veteran-Upgrades-Patched-Edition-<version>.zip" holds the same):
   veteran_upgrades_patched.pack        the mod (release build, no debug logging)
   veteran_upgrades_patched.png / .jpg  launcher thumbnail (made from the game's own unit art)
   patcher/                             the game patcher: patch_game.ps1 + .bat launchers (Windows),
@@ -83,7 +83,7 @@ def main():
     text = open(os.path.join(ROOT, "docs", "player_readme.txt"), encoding="utf-8").read().replace("@VERSION@", version())
     with open(os.path.join(DIST, "README.txt"), "w", encoding="utf-8", newline="\r\n") as f:
         f.write(text)
-    zname = os.path.join(DIST, f"Veteran Upgrades - Patched Edition {version()}.zip")
+    zname = os.path.join(DIST, f"Veteran-Upgrades-Patched-Edition-{version()}.zip")   # no spaces: GitHub renames them
     with zipfile.ZipFile(zname, "w", zipfile.ZIP_DEFLATED) as z:
         for dirpath, _, files in os.walk(DIST):
             for f in files:

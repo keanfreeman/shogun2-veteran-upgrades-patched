@@ -29,7 +29,7 @@ a **small, reversible patch** to one game file. Without the patch the mod still 
 ## Installing
 
 1. **Download** the latest zip from the [Releases page](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/releases)
-   (under "Assets": `Veteran Upgrades - Patched Edition <version>.zip`).
+   (under "Assets": `Veteran-Upgrades-Patched-Edition-<version>.zip`).
 2. **Unblock it** (Windows): right-click the zip → **Properties** → tick **Unblock** → OK.
    This stops Windows warning about the patcher later. Then extract the zip.
 3. **Quit Shogun 2** and its launcher.
