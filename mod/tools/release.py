@@ -1,17 +1,16 @@
-"""Make a Veteran Upgrades release: build, test, and assemble dist/ for the Steam Workshop.
+"""Make a Veteran Upgrades: Patched Edition release: build, test, and assemble dist/.
 
-    .venv/bin/python tools/release.py            # build + test + dist/
-    .venv/bin/python tools/release.py --install  # ...and copy pack + thumbnail into the game's data folder
+    <lab venv python> tools/release.py            # build + test + dist/ + zip
+    <lab venv python> tools/release.py --install  # ...and copy pack + thumbnail into the game's data folder
 
-dist/ gets:
-  veteran_upgrades.pack            the mod (release build, no debug logging)
-  veteran_upgrades.jpg / .png      Workshop thumbnail (made from the game's own unit art); the current
-                                   CA launcher shows <pack>.png, the 2012 Mod Manager used <pack>.jpg
-  workshop_description.bbcode      text for the Workshop page (docs/workshop_description.bbcode)
-The Assembly Kit's Mod Manager uploads a pack from the game's data folder and needs a .jpg with the
-same name next to it - that's what --install sets up.
+dist/ gets (and the zip "Veteran Upgrades - Patched Edition <version>.zip" holds the same):
+  veteran_upgrades_patched.pack        the mod (release build, no debug logging)
+  veteran_upgrades_patched.png / .jpg  launcher thumbnail (made from the game's own unit art)
+  patcher/                             the game patcher: patch_game.ps1 + .bat launchers (Windows),
+                                       patch_game.py (any Python 3), from ../player (tools/make_patchers.py)
+  README.txt                           install / uninstall / safety notes for players (docs/player_readme.txt)
 """
-import io, os, shutil, subprocess, sys
+import io, os, re, shutil, subprocess, sys, zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -19,7 +18,9 @@ from tools_db import GAME_DATA            # noqa: E402
 from tools_packread import extract        # noqa: E402
 
 DIST = os.path.join(ROOT, "dist")
-PACK = os.path.join(ROOT, "veteran_upgrades", "veteran_upgrades.pack")
+NAME = "veteran_upgrades_patched"
+PACK = os.path.join(ROOT, "veteran_upgrades", NAME + ".pack")
+PLAYER = os.path.join(os.path.dirname(ROOT), "player")
 ART = ["ashigaru_inf_yari_ashigaru", "samurai_inf_katana_samurai", "ashigaru_inf_bow_ashigaru",
        "ashigaru_inf_matchlock_ashigaru", "samurai_cav_yari_cavalry", "samurai_inf_nodachi_samurai"]
 FONTS = ["/usr/share/fonts/dejavu/DejaVuSerif-Bold.ttf", "C:\\Windows\\Fonts\\georgiab.ttf",
@@ -50,28 +51,50 @@ def thumbnail(path, size=512):
     font = next((f for f in FONTS if os.path.exists(f)), None)
     big = ImageFont.truetype(font, 54) if font else ImageFont.load_default()
     small = ImageFont.truetype(font, 22) if font else ImageFont.load_default()
-    for text, f, y, colour in (("VETERAN", big, 260, (232, 196, 120)), ("UPGRADES", big, 322, (232, 196, 120)),
-                               ("Multiplayer-style unit upgrades", small, 410, (220, 210, 200)),
-                               ("for all three Shogun 2 campaigns", small, 440, (220, 210, 200))):
+    for text, f, y, colour in (("VETERAN", big, 250, (232, 196, 120)), ("UPGRADES", big, 308, (232, 196, 120)),
+                               ("PATCHED EDITION", small, 380, (240, 120, 90)),
+                               ("Abilities for the units you already have", small, 420, (220, 210, 200)),
+                               ("Needs the included game patch", small, 450, (220, 210, 200))):
         tw = draw.textlength(text, font=f)
         draw.text(((size - tw) / 2, y), text, font=f, fill=colour)
     draw.rectangle([6, 6, size - 7, size - 7], outline=(150, 110, 60), width=3)
     img.save(path, "JPEG", quality=90)
 
 
+def version():
+    return re.search(r'^VERSION = "([^"]+)"', open(os.path.join(ROOT, "veteran_upgrades", "build.py")).read(), re.M).group(1)
+
+
 def main():
     install = "--install" in sys.argv
     run(sys.executable, "veteran_upgrades/build.py")
     run(sys.executable, "tests/run_tests.py")
-    os.makedirs(DIST, exist_ok=True)
-    shutil.copy(PACK, os.path.join(DIST, "veteran_upgrades.pack"))
-    thumbnail(os.path.join(DIST, "veteran_upgrades.jpg"))
+    run(os.path.join(os.path.dirname(ROOT), ".venv", "bin", "python"), "../tools/make_patchers.py", "--check")
+    if os.path.exists(DIST):
+        shutil.rmtree(DIST)
+    os.makedirs(os.path.join(DIST, "patcher"))
+    shutil.copy(PACK, DIST)
+    thumbnail(os.path.join(DIST, NAME + ".jpg"))
     from PIL import Image
-    Image.open(os.path.join(DIST, "veteran_upgrades.jpg")).save(os.path.join(DIST, "veteran_upgrades.png"))
-    shutil.copy(os.path.join(ROOT, "docs", "workshop_description.bbcode"), DIST)
-    print("dist/:", ", ".join(sorted(os.listdir(DIST))))
+    Image.open(os.path.join(DIST, NAME + ".jpg")).save(os.path.join(DIST, NAME + ".png"))
+    for f in sorted(os.listdir(PLAYER)):
+        shutil.copy(os.path.join(PLAYER, f), os.path.join(DIST, "patcher", f))
+    text = open(os.path.join(ROOT, "docs", "player_readme.txt"), encoding="utf-8").read().replace("@VERSION@", version())
+    with open(os.path.join(DIST, "README.txt"), "w", encoding="utf-8", newline="\r\n") as f:
+        f.write(text)
+    zname = os.path.join(DIST, f"Veteran Upgrades - Patched Edition {version()}.zip")
+    with zipfile.ZipFile(zname, "w", zipfile.ZIP_DEFLATED) as z:
+        for dirpath, _, files in os.walk(DIST):
+            for f in files:
+                p = os.path.join(dirpath, f)
+                if p != zname and not f.endswith(".zip"):
+                    z.write(p, os.path.relpath(p, DIST))
+    print("dist/:", ", ".join(sorted(os.listdir(DIST))), "| zip:", os.path.basename(zname))
     if install:
-        for name in ("veteran_upgrades.pack", "veteran_upgrades.jpg", "veteran_upgrades.png"):
+        if subprocess.run("ps -eo comm | grep -qi shogun", shell=True).returncode == 0:
+            print("Shogun 2 is running: not installing (quit the game first)")
+            return 1
+        for name in (NAME + ".pack", NAME + ".jpg", NAME + ".png"):
             shutil.copy(os.path.join(DIST, name), os.path.join(GAME_DATA, name))
         print(f"installed pack + thumbnail into {GAME_DATA}")
     return 0

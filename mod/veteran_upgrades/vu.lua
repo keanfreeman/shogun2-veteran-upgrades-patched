@@ -1,5 +1,5 @@
 -------------------------------------------------------------------------------
--- Veteran Upgrades, ability-patch edition (see VU_VERSION), appended to CA's export_advice.lua by
+-- Veteran Upgrades: Patched Edition (VU_TITLE, VU_VERSION), appended to CA's export_advice.lua by
 -- build.py (started from SetCampaign). Needs the empire.retail.dll ability patch for abilities.
 --
 -- Clan-wide upgrades per unit family, using the multiplayer skill-tree popup as the panel.
@@ -445,7 +445,7 @@ local function vu_refresh_panel()
 			if lock then
 				tip = string.format("%s\nRequires %s at %d/%d first.", line.label, lock.label, #lock.levels, #lock.levels)
 			elseif line.kind == "ability" and not VU_PATCH then
-				tip = string.format("Ability: %s\n%s\nNeeds the Veteran Upgrades ability patch (version 3 or later), which isn't installed in this game.", line.label, line.desc)
+				tip = string.format("Ability: %s\n%s\nNeeds the game patch that comes with Veteran Upgrades: Patched Edition (patch version 3 or later), which isn't installed in this game.", line.label, line.desc)
 			elseif line.kind == "ability" then
 				tip = string.format("Ability: %s\n%s\n%s\nApplies to every %s you have, including units already in your armies.%s", line.label, line.desc,
 					owned > 0 and "Unlocked for every " .. fam.name .. "." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points),
@@ -970,7 +970,7 @@ local function vu_create_hud_button()
 		elseif cid == "skill_name" then name = child
 		else pcall(function() UIComponent(child):SetVisible(false) end) end
 	end
-	local tip = "Veteran Upgrades\nSpend your clan's points (1 per battle fought) on upgrades for any unit type."
+	local tip = VU_TITLE .. "\nSpend your clan's points (1 per battle fought) on upgrades for any unit type."
 	for _, a in ipairs({ addr, icon, name }) do
 		if a then pcall(function() UIComponent(a):SetTooltipText(tip, true) end) end
 	end
@@ -1027,7 +1027,7 @@ local function VU_OnUICreated(context)
 		pcall(function() VU.player = CampaignUI.PlayerFactionId() end)
 		VU.button, VU.layout_for = nil, nil
 		VU.retrain_node, VU.retrain_armed, VU.title_node, VU.page_node, VU.list_page = nil, false, nil, nil, 1
-		vu_log("==== Veteran Upgrades " .. VU_VERSION .. " loaded; player", tostring(VU.player),
+		vu_log("==== " .. VU_TITLE .. " " .. VU_VERSION .. " loaded; player", tostring(VU.player),
 			"; ability patch", VU_PATCH and ("v" .. VU_PATCH) or "NOT installed", "====")
 		vu_guard("create hud button", vu_create_hud_button)
 		if VU.panel then VU.panel:SetVisible(false) end

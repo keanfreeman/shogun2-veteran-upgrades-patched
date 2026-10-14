@@ -1,9 +1,9 @@
-> **Ability-patch edition** (local experiment, `1.1.0-ap.1`). A copy of Veteran Upgrades 1.1.0 for a
+> **Veteran Upgrades: Patched Edition** (`1.0.0`). A copy of Veteran Upgrades 1.1.0 for a
 > game patched with this repo's `patch.py`. Ability unlocks are effect bundles that the patched
 > engine turns into real abilities on every unit of the type, existing units included: no unit
 > copies, no retraining, no recruitment locks, and AI clans can buy abilities too. Without the patch
 > (detected from Lua) stats work as usual and abilities can't be bought. Builds
-> `veteran_upgrades/veteran_upgrades_ap.pack`; needs `../abilities.py` and `../detect.lua`.
+> `veteran_upgrades/veteran_upgrades_patched.pack`; needs `../abilities.py` and `../detect.lua`.
 > Don't enable it together with another Veteran Upgrades pack (they all extend export_advice.lua).
 > **Multiplayer is switched off while it is enabled** (Avatar Conquest and Multiplayer Campaign read
 > "Off to keep your account safe" and do nothing): the patched DLL risks a VAC ban online, and multiplayer

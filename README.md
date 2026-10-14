@@ -1,4 +1,4 @@
-# Shogun 2 ability patch (experimental)
+# Veteran Upgrades: Patched Edition - Shogun 2 ability patch
 
 A small patch to `empire.retail.dll` (Total War: Shogun 2, Steam/Windows build) that lets an effect
 unlock an ability for **one unit type** in one clan. Units you already have gain it: no unit copies,
@@ -75,11 +75,28 @@ Mods detect the patch with [detect.lua](detect.lua) (reads the signature from th
 `testpack/build_testpack.py [--install]` builds `ability_patch_test.pack`; its docstring lists what
 to expect in game. Needs the Veteran Upgrades lab checkout for its DB tools.
 
-## Veteran Upgrades, ability-patch edition (`mod/`)
+## Player patchers (`player/`)
+
+What players run - no installs needed, and no modified DLL is ever distributed: the patchers carry
+only our bytes and edit the player's own copy.
+
+- `patch_game.ps1` + `Install patch.bat` / `Restore game.bat` / `Patch status.bat`: Windows
+  PowerShell 5.1+ (built into Windows 10/11); the .bat files run it with `-ExecutionPolicy Bypass`.
+- `patch_game.py`: any Python 3 (Linux/Proton, or Windows with Python).
+
+Both find the game through Steam (`libraryfolders.vdf`; `-GameDir` / `--game-dir` to override), only
+patch the exact vanilla DLL (SHA-256), back it up as `empire.retail.dll.vanilla`, verify the result's
+hash, and refuse unknown DLLs unless forced. They are generated from `patch.py` by
+`tools/make_patchers.py` (templates in `tools/patcher_templates/`); `--check` verifies they're current.
+
+## Veteran Upgrades: Patched Edition (`mod/`)
 
 A copy of Veteran Upgrades 1.1.0 that uses the patch instead of unit copies (see `mod/README.md`):
-`cd mod/veteran_upgrades && <lab venv python> build.py` builds `veteran_upgrades_ap.pack`;
+`cd mod/veteran_upgrades && <lab venv python> build.py` builds `veteran_upgrades_patched.pack`;
 `<lab venv python> mod/tests/run_tests.py` runs its tests (patched and unpatched).
+`cd mod && <lab venv python> tools/release.py` builds the release: `mod/dist/` and
+`Veteran Upgrades - Patched Edition <version>.zip` (pack, thumbnail, `patcher/`, player README).
+While enabled, the mod switches the main menu's multiplayer buttons off ("Off to keep your account safe").
 
 ## Results
 

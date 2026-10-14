@@ -1,6 +1,6 @@
-"""Run the Veteran Upgrades Lua against the mock engine.
+"""Run the Veteran Upgrades: Patched Edition Lua against the mock engine.
 
-Build first (veteran_upgrades/build.py writes veteran_upgrades_ap.pack), then:
+Build first (veteran_upgrades/build.py writes veteran_upgrades_patched.pack), then:
     .venv/bin/python tests/run_tests.py
 Runs tests/scenarios.lua (full flows) on Sengoku and tests/smoke.lua on every campaign.
 Needs lupa (pip install lupa). Exit code 1 if any check fails.
@@ -32,7 +32,7 @@ def fake_dll(patched):
 
 sys.path.insert(0, ROOT)
 from tools_packread import extract
-ADVICE_SRC = extract(os.path.join(ROOT, "veteran_upgrades", "veteran_upgrades_ap.pack"), "export_advice.lua").decode("utf-8")
+ADVICE_SRC = extract(os.path.join(ROOT, "veteran_upgrades", "veteran_upgrades_patched.pack"), "export_advice.lua").decode("utf-8")
 
 
 def run(campaign, scenario, player, patched):
