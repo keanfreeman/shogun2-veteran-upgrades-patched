@@ -5,6 +5,7 @@ Usage (from this folder, with the venv):
   .venv/bin/python patch.py apply             # back up the vanilla DLL, then patch it in place
   .venv/bin/python patch.py restore           # put the vanilla DLL back
   .venv/bin/python patch.py show              # print the patch bytes, disassembled (changes nothing)
+  add --diag to apply/show for the diagnostic table (abilities.DIAG_MODES)
 
 What it changes (empire.retail.dll, Steam build sha256 022fae2e...f874f5):
   The unit-capabilities builder (FUN_1019e580) grants a unit an ability from its unit type's list if
@@ -17,7 +18,7 @@ import hashlib, os, shutil, struct, sys
 
 import capstone, keystone, pefile
 
-from abilities import enum_to_bit_table
+from abilities import DIAG_MODES, enum_to_bit_table
 
 GAME = os.environ.get("SHOGUN2_DIR", os.path.expanduser(
     "~/.local/share/Steam/steamapps/common/Total War SHOGUN 2"))
@@ -49,6 +50,8 @@ TEXT_VSIZE_PATCHED = 0x159FE00  # .text VirtualSize grown to its raw size, so th
 CAVE_VA = BASE + 0x1000 + 0x159FC40
 TABLE_OFFSET = 0x80             # enum->bit table sits at CAVE_VA + 0x80
 
+BONUS_MELEE_ATTACK = 4          # index of melee_attack_mod (diagnostic mode 3)
+
 ASM = f"""
     test eax, eax
     jnz grant
@@ -63,16 +66,34 @@ getpc:
     movzx eax, byte ptr [edx + eax + TABLE_DISP]
     cmp al, 0xff
     je skip
+    mov edx, eax
+    shr edx, 5
+    and eax, 0x1f
+    cmp edx, 1
+    je grant
     push eax
-    mov ecx, dword ptr [esp + 0x2c]
-    mov edx, dword ptr [esp + 0x28]
-    sub edx, {UNIT_ABILITIES_OFFSET:#x}
-    push 0
-    push {BONUS_GENERAL_AOE}
     push edx
+    mov ecx, dword ptr [esp + 0x30]
+    mov eax, dword ptr [esp + 0x2c]
+    sub eax, {UNIT_ABILITIES_OFFSET:#x}
+    push 0
+    cmp edx, 3
+    mov edx, {BONUS_GENERAL_AOE}
+    jne push_id
+    mov edx, {BONUS_MELEE_ATTACK}
+push_id:
+    push edx
+    push eax
     push {CAT_UNIT_RECORD:#x}
     call {BONUS_LOOKUP_FN:#x}
+    pop edx
     pop ecx
+    test edx, edx
+    jz bit_test
+    test eax, eax
+    jnz grant
+    jmp skip
+bit_test:
     bt eax, ecx
     jnc skip
 grant:
@@ -80,19 +101,19 @@ grant:
 skip:
     jmp {SKIP_VA:#x}
 """
-# Stack note: at the hook esp is exactly as at 1019e635, where the bonus list is [esp+0x28] and the
-# unit's ability vector (param_2) is [esp+0x24]; after our `push eax` both are 4 further away.
+# Stack: at the hook esp is exactly as at 1019e635, where the bonus list is [esp+0x28] and the unit's
+# ability vector (param_2) is [esp+0x24]; after our two pushes both are 8 further away.
+# Table byte = (mode << 5) | bit (abilities.py): mode 0 tests the bit in general_aoe_mod; modes 1-3
+# are diagnostics (always / general_aoe_mod != 0 / melee_attack_mod != 0).
 
 
-def assemble():
+def assemble(diag=False):
     """Patch routine bytes (code + padding + table), assembled for CAVE_VA."""
     ks = keystone.Ks(keystone.KS_ARCH_X86, keystone.KS_MODE_32)
     disp = 0
     for _ in range(3):  # TABLE_DISP depends on where getpc lands
         enc, _ = ks.asm(ASM.replace("TABLE_DISP", hex(disp)), CAVE_VA)
         code = bytes(enc)
-        getpc = CAVE_VA + code.index(b"\x5a") if b"\x5a" in code else None  # pop edx
-        # find 'pop edx' that follows the call getpc (e8 00 00 00 00)
         i = code.index(b"\xe8\x00\x00\x00\x00\x5a")
         getpc = CAVE_VA + i + 5
         new = (CAVE_VA + TABLE_OFFSET) - getpc
@@ -100,7 +121,7 @@ def assemble():
             break
         disp = new
     assert len(code) <= TABLE_OFFSET, len(code)
-    return code + b"\xcc" * (TABLE_OFFSET - len(code)) + enum_to_bit_table()
+    return code + b"\xcc" * (TABLE_OFFSET - len(code)) + enum_to_bit_table(DIAG_MODES if diag else None)
 
 
 def hook_bytes():
@@ -134,10 +155,10 @@ def check_relocs(pe, ranges):
                     raise SystemExit(f"relocation at {va:#x} overlaps the patch range {lo:#x}-{hi:#x}")
 
 
-def patched_image(data):
+def patched_image(data, diag=False):
     pe = pefile.PE(data=data, fast_load=True)
     text, va2off, vsize_off = offsets(pe)
-    cave = assemble()
+    cave = assemble(diag)
     hook = hook_bytes()
     assert data[va2off(HOOK_VA):va2off(HOOK_VA) + 6] == HOOK_ORIG, "unexpected bytes at the hook"
     cave_off = va2off(CAVE_VA)
@@ -158,10 +179,10 @@ def disasm(code, va):
         print(f"  {ins.address:08x}  {ins.bytes.hex():<16} {ins.mnemonic} {ins.op_str}")
 
 
-def cmd_show():
+def cmd_show(diag=False):
     print(f"hook @ {HOOK_VA:#x}: {HOOK_ORIG.hex()} -> {hook_bytes().hex()}")
     disasm(hook_bytes(), HOOK_VA)
-    cave = assemble()
+    cave = assemble(diag)
     print(f"routine @ {CAVE_VA:#x} ({TABLE_OFFSET} bytes code area + {len(cave) - TABLE_OFFSET}-byte table):")
     disasm(cave[:TABLE_OFFSET].rstrip(b"\xcc"), CAVE_VA)
     print("  table:", cave[TABLE_OFFSET:].hex())
@@ -173,8 +194,10 @@ def state():
         return "vanilla"
     with open(BACKUP if os.path.exists(BACKUP) else DLL, "rb") as f:
         base = f.read()
-    if hashlib.sha256(base).hexdigest() == VANILLA_SHA256 and h == hashlib.sha256(patched_image(base)).hexdigest():
-        return "patched"
+    if hashlib.sha256(base).hexdigest() == VANILLA_SHA256:
+        for diag, name in ((False, "patched"), (True, "patched (diagnostic)")):
+            if h == hashlib.sha256(patched_image(base, diag)).hexdigest():
+                return name
     return "unknown"
 
 
@@ -184,10 +207,14 @@ def cmd_status():
     print(f"  backup: {'present' if os.path.exists(BACKUP) else 'none'} ({BACKUP})")
 
 
-def cmd_apply():
+def cmd_apply(diag=False):
     s = state()
-    if s == "patched":
-        print("already patched"); return
+    want = "patched (diagnostic)" if diag else "patched"
+    if s == want:
+        print("already", want); return
+    if s.startswith("patched"):
+        cmd_restore()
+        s = state()
     if s != "vanilla":
         raise SystemExit("the DLL is not the known vanilla build; refusing to patch (Steam 'Verify integrity' restores it)")
     with open(DLL, "rb") as f:
@@ -195,12 +222,12 @@ def cmd_apply():
     if not os.path.exists(BACKUP):
         shutil.copy2(DLL, BACKUP)
     assert sha256(BACKUP) == VANILLA_SHA256
-    out = patched_image(data)
+    out = patched_image(data, diag)
     tmp = DLL + ".tmp"
     with open(tmp, "wb") as f:
         f.write(out)
     os.replace(tmp, DLL)
-    print("patched:", DLL)
+    print(want + ":", DLL)
     print("vanilla backup:", BACKUP)
 
 
@@ -215,4 +242,8 @@ def cmd_restore():
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
-    {"status": cmd_status, "apply": cmd_apply, "restore": cmd_restore, "show": cmd_show}[cmd]()
+    diag = "--diag" in sys.argv
+    if cmd in ("apply", "show"):
+        {"apply": cmd_apply, "show": cmd_show}[cmd](diag)
+    else:
+        {"status": cmd_status, "restore": cmd_restore}[cmd]()

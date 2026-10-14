@@ -45,9 +45,20 @@ def bit(ability):
     return [k for k, _ in ABILITIES].index(ability)
 
 
-def enum_to_bit_table():
-    """70-byte lookup: engine enum value -> bit, 0xFF if the patch doesn't handle that ability."""
+# Rule per table entry (top 3 bits of the byte; low 5 bits = the ability's bit):
+MODE_BIT = 0         # grant if the unit type's general_aoe_mod has this ability's bit (the real rule)
+MODE_ALWAYS = 1      # diagnostic: always grant (proves the routine runs for this ability)
+MODE_AOE_ANY = 2     # diagnostic: grant if general_aoe_mod is non-zero (proves that lookup works)
+MODE_MELEE_ANY = 3   # diagnostic: grant if melee_attack_mod is non-zero (proves unit_record lookups work)
+
+# Diagnostic build (patch.py apply --diag): see testpack/build_testpack.py for what each one tests.
+DIAG_MODES = {"stand_firm": MODE_ALWAYS, "second_wind": MODE_AOE_ANY, "rapid_advance": MODE_MELEE_ANY}
+
+
+def enum_to_bit_table(modes=None):
+    """70-byte lookup: engine enum value -> (mode << 5) | bit, 0xFF if the patch doesn't handle it."""
+    modes = modes or {}
     table = bytearray([0xFF] * ENUM_COUNT)
-    for i, (_, enum) in enumerate(ABILITIES):
-        table[enum] = i
+    for i, (key, enum) in enumerate(ABILITIES):
+        table[enum] = (modes.get(key, MODE_BIT) << 5) | i
     return bytes(table)

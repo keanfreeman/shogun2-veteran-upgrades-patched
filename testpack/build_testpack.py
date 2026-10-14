@@ -34,6 +34,12 @@ GRANTED_UNIT = "Inf_Spear_Yari_Ashigaru"
 CONTROL_UNIT = "Inf_Spear_Yari_Samurai"
 CLAN_BUNDLE = "t_shimazu"
 EFFECT = "abpatch_test_yari_warcry"
+# Diagnostic probes (need `patch.py apply --diag`), all on Yari Ashigaru, rule per abilities.DIAG_MODES:
+#   Stand Firm    - always granted       -> the routine runs and maps abilities correctly
+#   Second Wind   - general_aoe_mod != 0 -> the general_aoe_mod lookup finds our effect
+#   Rapid Advance - melee_attack_mod != 0 (MELEE_EFFECT, Shimazu only) -> unit_record lookups work at all
+PROBES = ["stand_firm", "second_wind", "rapid_advance"]
+MELEE_EFFECT = "abpatch_test_yari_melee"
 
 
 def vanilla(table):
@@ -53,10 +59,11 @@ def ours(table, rows):
 
 
 def gate(rows):
+    keys = {ABILITY, *PROBES}
     for r in rows:
-        if r["key"] == ABILITY:
+        if r["key"] in keys:
             r["requires_effect_enabling"] = True
-    assert any(r["key"] == ABILITY for r in rows)
+    assert keys <= {r["key"] for r in rows}
     return rows
 
 
@@ -68,18 +75,21 @@ def build():
         ours("unit_to_unit_abilities_junctions_tables", [
             {"unit_name": GRANTED_UNIT, "ability": ABILITY},
             {"unit_name": CONTROL_UNIT, "ability": ABILITY},
-        ]),
-        ours("effects_tables", [dict(template, effect=EFFECT)]),
+        ] + [{"unit_name": GRANTED_UNIT, "ability": a} for a in PROBES]),
+        ours("effects_tables", [dict(template, effect=EFFECT), dict(template, effect=MELEE_EFFECT)]),
         ours("effect_bonus_value_unit_record_junctions_tables", [
             {"bonus_value_id": "general_aoe_mod", "effect": EFFECT, "unit_record_key": GRANTED_UNIT},
+            {"bonus_value_id": "melee_attack_mod", "effect": MELEE_EFFECT, "unit_record_key": GRANTED_UNIT},
         ]),
         ours("effect_bundles_to_effects_junctions_tables", [
             {"effect_bundle_key": CLAN_BUNDLE, "effect_key": EFFECT, "value": float(1 << bit(ABILITY))},
+            {"effect_bundle_key": CLAN_BUNDLE, "effect_key": MELEE_EFFECT, "value": 1.0},
         ]),
     ]
     ver, _ = read_loc(extract(LOCAL, "text\\db\\effects.loc"))
     files.append(("text\\db\\abpatch_test_effects.loc", write_loc(
-        [("effects_description_" + EFFECT, "Ability patch test: Yari Ashigaru gain War Cry", 1)], ver)))
+        [("effects_description_" + EFFECT, "Ability patch test: Yari Ashigaru gain War Cry", 1),
+         ("effects_description_" + MELEE_EFFECT, "%+n melee attack for Yari Ashigaru (ability patch test)", 1)], ver)))
     out = os.path.join(HERE, PACK)
     write_pack(out, files, pack_type="mod")
     print("wrote", out)
