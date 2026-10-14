@@ -681,6 +681,40 @@ def loc_file(vanilla_path, name, extra):
     return vanilla_path.rsplit("\\", 1)[0] + "\\" + name, write_loc([(k, v, 1) for k, v in extra], ver)
 
 
+# Multiplayer is switched off while this edition is enabled: it needs the DLL patch, and a modified game
+# DLL risks a VAC ban online (Shogun 2 is VAC-secured); multiplayer campaigns also need identical data.
+# The main menu's C++ looks its buttons up by name with null checks (FUN_10fe27xx set-up, 0x10fe2f98
+# clicks), so renaming the two multiplayer buttons in our copy of the menu layout (same length, so the
+# binary layout stays valid) leaves them visible but dead. Labels come from ui_component_localisation.
+MENU_LAYOUT = "ui\\frontend ui\\main"
+MENU_RENAMES = {b"multiplayer": b"vu_mp_off_1", b"mp_campaign": b"vu_mp_off_2"}   # Avatar Conquest, MP campaign
+MENU_TEXTS = {
+    "ui_component_localisation_localised_string_mp_tx_NewState_Text_75002f": "Multiplayer disabled",
+    "ui_component_localisation_localised_string_button_txt_NewState_Text_5b006e": "Off: Veteran Upgrades mod",
+    "ui_component_localisation_localised_string_button_txt_NewState_Text_430007": "Off: Veteran Upgrades mod",
+}
+
+
+def multiplayer_off_files():
+    """Our copy of the main-menu layout with the multiplayer buttons renamed, and a full copy of
+    ui_component_localisation.loc with their labels changed (a full copy: which of two loc files wins
+    for the same key is untested)."""
+    layout = extract(DATA, MENU_LAYOUT)
+    for old, new in MENU_RENAMES.items():
+        assert len(old) == len(new)
+        prefixed = len(old).to_bytes(2, "little") + old   # the layout's length-prefixed strings only
+        n = layout.count(prefixed)
+        # multiplayer: the button's own name + the mp_campaign button's link to it; mp_campaign: its name
+        assert n == {b"multiplayer": 2, b"mp_campaign": 1}[old], (old, n)
+        layout = layout.replace(prefixed, len(new).to_bytes(2, "little") + new)
+    path = "text\\db\\ui_component_localisation.loc"
+    ver, rows = read_loc(extract(LOCAL, path))
+    keys = {k for k, _, _ in rows}
+    assert set(MENU_TEXTS) <= keys, set(MENU_TEXTS) - keys
+    rows = [(k, MENU_TEXTS.get(k, v), tip) for k, v, tip in rows]
+    return [(MENU_LAYOUT, layout), (path, write_loc(rows, ver))]
+
+
 def lua_value(v):
     if isinstance(v, bool): return "true" if v else "false"
     if isinstance(v, (int, float)): return repr(v)
@@ -829,6 +863,7 @@ if __name__ == "__main__":
         loc_file("text\\db\\effect_bundles.loc", "vu_effect_bundles.loc", b["bundle_loc"]),
     ]
     files += [new_table(t, "vu_ability_clones", rows) for t, rows in ct.items()]
+    files += multiplayer_off_files()
     # The patch-detection snippet from the patch repo, as a local function.
     detect = open(os.path.join(HERE, "..", "..", "detect.lua")).read().replace(
         "function ability_patch_version()", "local function ability_patch_version()")
