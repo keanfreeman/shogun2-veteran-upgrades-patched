@@ -449,7 +449,7 @@ local function vu_refresh_panel()
 			elseif line.kind == "ability" then
 				tip = string.format("Ability: %s\n%s\n%s\nApplies to every %s you have, including units already in your armies.%s", line.label, line.desc,
 					owned > 0 and "Unlocked for every " .. fam.name .. "." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points),
-					fam.name, line.gated and "\nAlso needs what normally unlocks it (research, or for some abilities a general's skill)." or "")
+					fam.name, line.gated and ("\nOnly usable once you also have: " .. (line.requires ~= "" and line.requires or "what normally unlocks it") .. ".") or "")
 			elseif line.kind == "passive" then
 				tip = string.format("%s\nThis unit frightens nearby enemies, lowering their morale.\n%s", line.label,
 					owned > 0 and "Unlocked." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points))

@@ -272,18 +272,28 @@ def rule_fits(ab, keys):
 
 
 def campaign_enablers(camp):
-    """Gated abilities this campaign can enable: by its technologies (not the custom-battle one) or
+    """{gated ability: what unlocks it in this campaign}, e.g. pike_square_formation ->
+    "Spear Expertise (research)". Sources: the campaign's technologies (not the custom-battle one) and
     its generals' skills (vanilla: Sengoku skills have no prefix, Rise gem_, Fall bos_)."""
     tech_prefix = {"sengoku": "shogun_", "gempei": "gempei_", "boshin": "boshin_"}[camp["id"]]
-    used = {r["effect"] for r in load("technology_effects_junction_tables")
-            if r["technology"].startswith(tech_prefix) and r["technology"] != "shogun_custom_battle_tech"}
+    names = {}
+    for f in ("text\\db\\technologies.loc", "text\\db\\character_skills.loc"):
+        names.update({k: v for k, v, _ in read_loc(extract(LOCAL, f))[1]})
+    how = collections.defaultdict(set)   # effect -> descriptions
+    for r in load("technology_effects_junction_tables"):
+        if r["technology"].startswith(tech_prefix) and r["technology"] != "shogun_custom_battle_tech":
+            how[r["effect"]].add(names.get("technologies_onscreen_name_" + r["technology"], r["technology"]).strip() + " (research)")
     for r in load("character_skill_level_to_effects_junctions_tables"):
         k = r["character_skill_key"]
         mine = k.startswith(("gem_",)) if camp["id"] == "gempei" else k.startswith(("bos_",)) if camp["id"] == "boshin" \
             else not k.startswith(("gem_", "bos_"))
         if mine:
-            used.add(r["effect_key"])
-    return {r["unit_ability"] for r in load("effect_bonus_value_unit_ability_junctions_tables") if r["effect"] in used}
+            skill = names.get("character_skills_localised_name_" + k, k).strip()
+            how[r["effect_key"]].add(f"a general with the {skill} skill in the army")
+    out = collections.defaultdict(set)
+    for r in load("effect_bonus_value_unit_ability_junctions_tables"):
+        out[r["unit_ability"]] |= how.get(r["effect"], set())
+    return {ab: " or ".join(sorted(v)) for ab, v in out.items() if v}
 
 
 UNITS_CLASS = {}
@@ -401,7 +411,8 @@ def build_catalog(camp):
                 "desc": ABILITIES[ab]["info_card_tooltip_text"],
                 # Gated abilities need what normally unlocks them when this campaign has it; otherwise
                 # the clone waives it (else they could never be used).
-                "gated": gated and ab in enablers, "no_research": gated and ab not in enablers}
+                "gated": gated and ab in enablers, "no_research": gated and ab not in enablers,
+                "requires": enablers.get(ab, "") if gated else ""}
         if not lines:
             continue
         # One line per row under each heading, in line order (stats, passives, abilities); a line whose
@@ -771,7 +782,7 @@ def lua_data(catalog, camp):
             lines.append({"key": line["key"], "label": line["label"], "advanced": line["advanced"], "icon": line["icon"],
                           "bonus": line["bonus"], "stat": BONUS_LABEL.get(line["bonus"], line["label"]),
                           "kind": line["kind"], "column": line["column"], "row": line["row"],
-                          "desc": line.get("desc", ""), "gated": line.get("gated", False),
+                          "desc": line.get("desc", ""), "gated": line.get("gated", False), "requires": line.get("requires", ""),
                           "levels": [{"bundle": bundle_key(fam["id"], line, i), "value": v,
                                       "cost": ABILITY_COSTS.get(line.get("ability"), ABILITY_COST) if ability
                                       else (PASSIVE_COST if line["kind"] == "passive" else line["costs"][i - 1])}
