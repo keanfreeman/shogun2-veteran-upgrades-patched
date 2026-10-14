@@ -1,0 +1,17 @@
+# Proves the player patchers contain exactly the patch the readable source in patch.py assembles to,
+# and that they contain no network access, downloads, program launches or hidden code.
+# Needs no game files: tools/verify_patchers.py works from patch.py and player/ alone.
+name: Verify patchers
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install keystone-engine==0.9.2 capstone==5.0.7 pefile==2024.8.26
+      - run: python tools/verify_patchers.py

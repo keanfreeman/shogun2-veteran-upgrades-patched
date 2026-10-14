@@ -1,5 +1,43 @@
 # Veteran Upgrades: Patched Edition - Shogun 2 ability patch
 
+[![Verify patchers](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/actions/workflows/verify.yml/badge.svg)](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/actions/workflows/verify.yml)
+
+**Players:** download the zip from [Releases](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/releases)
+and follow its README.txt. Single-player only.
+
+## Is this safe? What exactly does it change?
+
+The patcher ([player/](player/)) is two short, readable scripts - nothing compiled, nothing downloaded:
+
+- **It changes one file:** the game's `empire.retail.dll`, after saving the original next to it as
+  `empire.retail.dll.vanilla`. 348 bytes change in four places; [docs/PATCH.md](docs/PATCH.md) lists
+  every one, disassembled and explained. It writes nothing else (apart from a temporary copy it
+  renames into place) and no registry keys; it only *reads* Steam's install path to find the game.
+- **It only patches the exact game file it knows** (checked by SHA-256 before and after) and refuses
+  anything else, such as a file changed by a Steam update.
+- **It's reversible:** `Restore game.bat` (or Steam's "Verify integrity of game files") puts the
+  original back.
+- **No network, no admin rights, no other programs:** the scripts never connect anywhere, download,
+  or start anything. Windows' PowerShell is used only to read and write that one file.
+- **No modified game file is distributed.** The patchers contain only our own bytes and edit the
+  player's own copy.
+
+**Checking it yourself.** The bytes in the patchers come from the readable assembly in
+[patch.py](patch.py). [tools/verify_patchers.py](tools/verify_patchers.py) re-assembles that source and
+checks the patchers contain exactly those bytes at those places, and nothing that reaches the network,
+launches programs, writes the registry or decodes hidden code. It needs no game files, and it runs on
+every push (badge above). Each release lists SHA-256 checksums of its files (`SHA256SUMS.txt`).
+
+**Why is a game file patched at all?** Shogun 2 can only unlock an ability for a whole clan or army,
+never for one unit type, and abilities are a fixed list inside the game's code. The patch adds that one
+missing check; how it was found and what it does is described below.
+
+**Multiplayer:** Shogun 2 uses Valve Anti-Cheat online, and a modified game file can get an account
+banned. The mod switches the multiplayer buttons off while it is enabled; restore the game before
+playing multiplayer.
+
+---
+
 A small patch to `empire.retail.dll` (Total War: Shogun 2, Steam/Windows build) that lets an effect
 unlock an ability for **one unit type** in one clan. Units you already have gain it: no unit copies,
 no retraining. A local experiment for Veteran Upgrades; not distributed.

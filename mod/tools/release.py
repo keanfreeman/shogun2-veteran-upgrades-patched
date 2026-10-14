@@ -9,8 +9,9 @@ dist/ gets (and the zip "Veteran Upgrades - Patched Edition <version>.zip" holds
   patcher/                             the game patcher: patch_game.ps1 + .bat launchers (Windows),
                                        patch_game.py (any Python 3), from ../player (tools/make_patchers.py)
   README.txt                           install / uninstall / safety notes for players (docs/player_readme.txt)
+  SHA256SUMS.txt                       checksums of the zip and every file in it (attach to the release)
 """
-import io, os, re, shutil, subprocess, sys, zipfile
+import hashlib, io, os, re, shutil, subprocess, sys, zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -89,6 +90,14 @@ def main():
                 p = os.path.join(dirpath, f)
                 if p != zname and not f.endswith(".zip"):
                     z.write(p, os.path.relpath(p, DIST))
+    sums = []
+    for dirpath, _, files in os.walk(DIST):
+        for f in sorted(files):
+            if f != "SHA256SUMS.txt":
+                p = os.path.join(dirpath, f)
+                sums.append(f"{hashlib.sha256(open(p, 'rb').read()).hexdigest()}  {os.path.relpath(p, DIST)}")
+    with open(os.path.join(DIST, "SHA256SUMS.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(sorted(sums, key=lambda l: l.split("  ", 1)[1])) + "\n")
     print("dist/:", ", ".join(sorted(os.listdir(DIST))), "| zip:", os.path.basename(zname))
     if install:
         if subprocess.run("ps -eo comm | grep -qi shogun", shell=True).returncode == 0:
