@@ -13,6 +13,10 @@ Rise of the Samurai, Fall of the Samurai).
 Giving abilities to one unit type isn't something the game normally allows, so this edition comes with
 a **small, reversible patch** to one game file. Without the patch the mod still works, but only for stats.
 
+| Pick a unit type... | ...and buy its upgrades |
+|---|---|
+| ![The Veterans list: every unit type you can recruit, by category](docs/images/unit-list-sengoku.png) | ![Yari Ashigaru's upgrade tree: stats, Scare Enemies and abilities such as War Cry, Rally and Banzai](docs/images/yari-ashigaru-upgrades.png) |
+
 > Looking for the version on the Steam Workshop? That's [Veteran Upgrades](https://github.com/keanfreeman/shogun2-veteran-upgrades),
 > which needs no patch and works in a different way. Don't enable both at once.
 
@@ -113,6 +117,14 @@ skill), but never for one unit type, and its list of abilities is fixed inside t
 regular Workshop mod works around that by adding upgraded *copies* of units, which you have to recruit
 or retrain into (losing veterancy). The patch adds the one missing check to the game, so the units you
 already have simply gain the ability. How that works is below.
+
+## More screenshots
+
+The unit lists of the other two campaigns:
+
+| Rise of the Samurai | Fall of the Samurai |
+|---|---|
+| ![Rise of the Samurai unit list](docs/images/unit-list-rise-of-the-samurai.png) | ![Fall of the Samurai unit list](docs/images/unit-list-fall-of-the-samurai.png) |
 
 ---
 
