@@ -73,6 +73,12 @@ Mods detect the patch with [detect.lua](detect.lua) (reads the signature from th
 `testpack/build_testpack.py [--install]` builds `ability_patch_test.pack`; its docstring lists what
 to expect in game. Needs the Veteran Upgrades lab checkout for its DB tools.
 
+## Veteran Upgrades, ability-patch edition (`mod/`)
+
+A copy of Veteran Upgrades 1.1.0 that uses the patch instead of unit copies (see `mod/README.md`):
+`cd mod/veteran_upgrades && <lab venv python> build.py` builds `veteran_upgrades_ap.pack`;
+`<lab venv python> mod/tests/run_tests.py` runs its tests (patched and unpatched).
+
 ## Results
 
 - 2026-10-14, v1 (gated real abilities): Shimazu Yari Ashigaru gained War Cry, Second Wind, Rapid

@@ -10,6 +10,7 @@ at 0x115b3b98); `requires_effect_enabling` must be True on these abilities for t
 
 # (ability key, engine enum value); the list position is the bit.
 ABILITIES = [
+    # everything Veteran Upgrades offers (mod/veteran_upgrades/build.py ABILITY_MAP + range_effect)
     ("warcry", 45),
     ("rally", 36),
     ("inspire_unit", 35),
@@ -19,21 +20,22 @@ ABILITIES = [
     ("banzai", 32),
     ("blinding_grenade", 22),
     ("flaming_arrows_ability", 23),
-    ("flaming_arrows_long_range_ability", 24),
-    ("flaming_arrows_extreme_range_ability", 25),
     ("whistling_arrows_ability", 26),
-    ("whistling_arrows_long_range_ability", 27),
-    ("whistling_arrows_extreme_range_ability", 28),
     ("second_wind", 41),
-    ("rapid_advance", 39),
     ("kneel_fire_ability", 57),
     ("suppression_fire", 61),
-    ("wedge_formation", 2),
     ("we_stand_and_fight", 43),
+    ("cantabrian_circle", 9),
+    ("heroic_assault", 60),
+    ("ganbatte", 59),
+    # others the engine has for land units
+    ("rapid_advance", 39),
+    ("wedge_formation", 2),
     ("pike_wall_formation", 6),
     ("spear_wall", 42),
-    ("cantabrian_circle", 9),
     ("active_hiding", 29),
+    ("flaming_arrows_long_range_ability", 24),
+    ("whistling_arrows_long_range_ability", 27),
 ]
 assert len(ABILITIES) <= 24
 
