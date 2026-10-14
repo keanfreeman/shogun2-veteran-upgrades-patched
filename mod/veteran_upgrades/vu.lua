@@ -91,7 +91,9 @@ local CampaignUI = VU_DEBUG and setmetatable({}, { __index = function(_, m)
 end }) or CampaignUI
 
 local function addr_key(addr) return tostring(addr) end
+local VU_PATCH_MIN = 3   -- clone keys "vuNN_..." need patch version 3
 local VU_PATCH = ability_patch_version()   -- nil when the game DLL isn't patched
+if VU_PATCH and VU_PATCH < VU_PATCH_MIN then VU_PATCH = nil end
 local VU_RETRAIN_ICON = "data/ui/frontend ui/skills/skill_morale.tga"
 local VU_PAGE_ICON = "data/ui/frontend ui/skills/skill_speed.tga"
 
@@ -357,12 +359,23 @@ local function vu_layout(fam)
 	-- stats per column, in line order
 	local col_stats, stat_seen = {}, {}
 	for _, line in ipairs(fam.lines) do
-		-- Lines sharing a column and row sit side by side; a stat's Advanced line sits under its basic line.
+		-- Lines sharing a column and a row sit side by side (build.py gives each line its own row).
 		local col, slot = line.column, line.kind == "ability" and line.key or line.bonus
 		col_stats[col] = col_stats[col] or {}
-		local tag = col .. ":" .. (line.kind == "stat" and "stat" or "unlock")
+		local tag = col .. ":" .. line.row
 		col_stats[tag] = col_stats[tag] or {}
 		if not stat_seen[slot] then stat_seen[slot] = true table.insert(col_stats[tag], slot) end
+	end
+	-- Keep the last row above the OK/Cancel bar: squeeze the row spacing if the tallest column needs it.
+	local max_row = 0
+	for _, line in ipairs(fam.lines) do if line.row > max_row then max_row = line.row end end
+	if max_row > 0 and VU.nodes[1] then
+		pcall(function()
+			local _, ok_y = UIComponent(vu_child(VU.panel_addr, "button_ok")):Position()
+			local nh = UIComponent(VU.nodes[1].addr):Height()
+			local fit = math.floor((ok_y - 10 - top_y - nh) / max_row)
+			if fit > 0 and fit < row_h then row_h = fit end
+		end)
 	end
 	VU.geom = { top_y = top_y, row_h = row_h }
 	local spare = 1
@@ -381,7 +394,7 @@ local function vu_layout(fam)
 		local nw = 0
 		pcall(function() nw = UIComponent(nd.addr):Width() end)
 		local slot = line.kind == "ability" and line.key or line.bonus
-		local stats, k = col_stats[col .. ":" .. (line.kind == "stat" and "stat" or "unlock")], 1
+		local stats, k = col_stats[col .. ":" .. line.row], 1
 		for j, b in ipairs(stats) do if b == slot then k = j end end
 		local spacing = nw + 40
 		local cx = (hx or nd.x) + hw / 2 + (k - (#stats + 1) / 2) * spacing
@@ -428,11 +441,11 @@ local function vu_refresh_panel()
 			if lock then
 				tip = string.format("%s\nRequires %s at %d/%d first.", line.label, lock.label, #lock.levels, #lock.levels)
 			elseif line.kind == "ability" and not VU_PATCH then
-				tip = string.format("Ability: %s\n%s\nNeeds the Veteran Upgrades ability patch, which isn't installed in this game.", line.label, line.desc)
+				tip = string.format("Ability: %s\n%s\nNeeds the Veteran Upgrades ability patch (version 3 or later), which isn't installed in this game.", line.label, line.desc)
 			elseif line.kind == "ability" then
 				tip = string.format("Ability: %s\n%s\n%s\nApplies to every %s you have, including units already in your armies.%s", line.label, line.desc,
 					owned > 0 and "Unlocked for every " .. fam.name .. "." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points),
-					fam.name, line.gated and "\nAlso needs the usual research before it can be used." or "")
+					fam.name, line.gated and "\nAlso needs what normally unlocks it (research, or for some abilities a general's skill)." or "")
 			elseif line.kind == "passive" then
 				tip = string.format("%s\nThis unit frightens nearby enemies, lowering their morale.\n%s", line.label,
 					owned > 0 and "Unlocked." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points))
@@ -1033,6 +1046,13 @@ end
 
 local vu_ai_spend, vu_ai_clan   -- defined with the points code below
 
+-- AI levels are saved packed base 16 (levels go up to 10), VU_AL_CHUNK lines per value: 16^6 - 1 =
+-- 2^24 - 1 still fits a saved number exactly (trees here have up to 28 lines).
+local VU_AL_CHUNK = 6
+local function vu_al_key(faction, fam, chunk)   -- chunk 0 keeps the original key
+	return "VU_AL" .. (chunk > 0 and tostring(chunk + 1) or "") .. "_" .. faction .. "__" .. fam.id
+end
+
 local function VU_OnSavingGame(context)
 	vu_guard("SavingGame", function()
 		local gi = EpisodicScripting.game_interface
@@ -1042,18 +1062,22 @@ local function VU_OnSavingGame(context)
 				gi:save_named_value("VU_L_" .. fam.id .. "__" .. line.key, vu_level(fam.id, line.key), context)
 			end
 		end
-		-- AI clans: a flag per clan, its pool, and per unit type it has fought with the levels packed
-		-- base 16 (levels go up to 10).
+		-- AI clans: a flag per clan, its pool, and per unit type it has fought with its levels (chunked).
 		local n = 0
 		for faction, clan in pairs(VU.ai or {}) do
 			gi:save_named_value("VU_AF_" .. faction, 1, context)
 			gi:save_named_value("VU_APOOL_" .. faction, clan.pool, context)
 			for _, fam in ipairs(VU_FAMILIES) do
 				if clan.used[fam.id] then
-					local lv, packed = clan.levels[fam.id] or {}, 0
-					for i = #fam.lines, 1, -1 do packed = packed * 16 + (lv[fam.lines[i].key] or 0) end
+					local lv = clan.levels[fam.id] or {}
 					gi:save_named_value("VU_AU_" .. faction .. "__" .. fam.id, 1, context)
-					gi:save_named_value("VU_AL_" .. faction .. "__" .. fam.id, packed, context)
+					for c = 0, math.ceil(#fam.lines / VU_AL_CHUNK) - 1 do
+						local packed = 0
+						for i = math.min(#fam.lines, (c + 1) * VU_AL_CHUNK), c * VU_AL_CHUNK + 1, -1 do
+							packed = packed * 16 + (lv[fam.lines[i].key] or 0)
+						end
+						gi:save_named_value(vu_al_key(faction, fam, c), packed, context)
+					end
 				end
 			end
 			n = n + 1
@@ -1082,11 +1106,14 @@ local function VU_OnLoadingGame(context)
 				for _, fam in ipairs(VU_FAMILIES) do
 					if gi:load_named_value("VU_AU_" .. faction .. "__" .. fam.id, 0, context) == 1 then
 						clan.used[fam.id] = true
-						local packed, lv = gi:load_named_value("VU_AL_" .. faction .. "__" .. fam.id, 0, context), {}
-						for i = 1, #fam.lines do
-							local l = packed % 16
-							if l > 0 then lv[fam.lines[i].key] = l end
-							packed = (packed - l) / 16
+						local lv = {}
+						for c = 0, math.ceil(#fam.lines / VU_AL_CHUNK) - 1 do
+							local packed = gi:load_named_value(vu_al_key(faction, fam, c), 0, context)
+							for i = c * VU_AL_CHUNK + 1, math.min(#fam.lines, (c + 1) * VU_AL_CHUNK) do
+								local l = packed % 16
+								if l > 0 then lv[fam.lines[i].key] = l end
+								packed = (packed - l) / 16
+							end
 						end
 						clan.levels[fam.id] = lv
 					end

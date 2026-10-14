@@ -18,7 +18,7 @@ import collections, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(HERE, "..", ".."))   # the patch repo: abilities.py (the patch's bit table)
-from abilities import ABILITIES as PATCH_ABILITIES, bit as patch_bit
+from abilities import MAX_BITS, assign_bits, clone_key as patch_clone_key
 from tools_packread import extract
 from tools_packwrite import write_pack
 from tools_db import load, load_file, encode, GAME_DATA
@@ -80,18 +80,65 @@ ABILITY_MAP = {
 }
 # MP effects that are passive unit_record bonuses in campaign.
 PASSIVE_MAP = {"enable_ability_scare_enemies": ("scares_men", "Scare Enemies", 1.0)}
+# Abilities offered to every unit type they suit, on top of the MP trees (the patch makes any of them
+# per unit type). What suits a unit (unit_kind = class, missile weapon, mounted):
+RULE_ANY = {"warcry", "rally", "inspire_unit", "stand_firm", "second_wind", "banzai", "ganbatte",   # shouts, buffs:
+            "heroic_assault", "rapid_advance", "we_stand_and_fight"}                              # any non-artillery unit
+RULE_MISSILE = {"rapid_volley", "range_effect"}                    # anything that shoots (not artillery)
+RULE_BOW = {"flaming_arrows_ability", "whistling_arrows_ability"}   # they swap the unit's arrows
+RULE_SAME_KIND = {"pike_wall_formation", "pike_square_formation", "wedge_formation", "cantabrian_circle",
+                  "kneel_fire_ability", "rank_fire", "suppression_fire", "bamboo_wall", "pavisse_deployable",
+                  "active_hiding", "blinding_grenade", "shrapnel_shot"}   # formations/kit: only unit kinds that have it in vanilla
+RULE_ABILITIES = RULE_ANY | RULE_MISSILE | RULE_BOW | RULE_SAME_KIND
+MAX_LINES = 28   # nodes in the MP skill-tree popup
+# Upgrades EVERY unit type gets, whether or not its multiplayer tree has them (from the MoSS edition):
+#   (bonus_value_id, label, icon, step per level or None = median of the trees that have it, missile units only)
+UNIVERSAL_STATS = [
+    ("melee_attack_mod", "Melee Attack", "skill_melee_attack", None, False),
+    ("melee_defence_mod", "Melee Defence", "skill_melee_defence", None, False),
+    ("armour_mod", "Armour", "skill_armour", None, False),
+    ("morale", "Morale", "skill_morale", None, False),
+    ("accuracy_mod", "Accuracy", "skill_accuracy", None, True),
+]
+NOT_FOR_ARTILLERY = {"melee_attack_mod", "melee_defence_mod"}   # crews aren't meant to fight (unless their tree says so)
 # Panel column (popup heading container) per bonus / ability.
 COLUMN = {"morale": "leadership", "accuracy_mod": "ranged", "reload": "ranged", "armour_mod": "physical",
           "melee_attack_mod": "melee", "melee_defence_mod": "melee", "scares_men": "leadership"}
-ABILITY_COLUMN = {"rally": "leadership", "inspire_unit": "leadership", "warcry": "leadership", "stand_firm": "leadership",
-                  "we_stand_and_fight": "leadership", "flaming_arrows_ability": "ranged", "whistling_arrows_ability": "ranged",
-                  "rapid_volley": "ranged", "kneel_fire_ability": "ranged", "suppression_fire": "ranged",
-                  "cantabrian_circle": "ranged", "blinding_grenade": "physical", "second_wind": "physical",
-                  "banzai": "melee", "heroic_assault": "melee", "ganbatte": "melee", "range_effect": "ranged"}
+ABILITY_COLUMN = {"rally": "leadership", "inspire_unit": "leadership", "stand_firm": "leadership",
+                  "we_stand_and_fight": "leadership", "ganbatte": "leadership",
+                  "warcry": "melee", "banzai": "melee", "heroic_assault": "melee", "rapid_advance": "melee",
+                  "pike_wall_formation": "melee", "pike_square_formation": "melee",
+                  "flaming_arrows_ability": "ranged", "whistling_arrows_ability": "ranged", "rapid_volley": "ranged",
+                  "range_effect": "ranged", "kneel_fire_ability": "ranged", "suppression_fire": "ranged",
+                  "rank_fire": "ranged", "cantabrian_circle": "ranged", "shrapnel_shot": "ranged",
+                  "second_wind": "physical", "wedge_formation": "physical", "blinding_grenade": "physical",
+                  "active_hiding": "physical", "bamboo_wall": "physical", "pavisse_deployable": "physical"}
 # Costs (clan points; the clan earns a flat amount per battle, vu.lua VU_POINTS_PER_BATTLE).
 ABILITY_COST = 5   # unit abilities, unless listed in ABILITY_COSTS
-ABILITY_COSTS = {"range_effect": 6, "banzai": 6, "rapid_volley": 6, "inspire_unit": 5, "blinding_grenade": 5,
-                 "whistling_arrows_ability": 4, "rally": 4, "stand_firm": 4, "warcry": 4}
+# Priced by reach (self / up to 3 units / every friendly in range), strength and recharge, from
+# unit_special_abilities + _kv_special_ability_effects (2026-10-14). A point is one battle.
+ABILITY_COSTS = {
+    # 7-6: area buffs on every friendly unit nearby
+    "ganbatte": 7,            # 150 m: +10 accuracy, +2 melee attack, +2 morale, +10 reload; 30 s every 120 s
+    "heroic_assault": 6,      # 75 m: fatigue reset, +4 morale, +55% speed; 20 s every 120 s
+    # 5: strong, or affects several units
+    "rally": 5,               # 75 m: rallies routing units
+    "inspire_unit": 5,        # self: +10 morale, +3 melee attack, +15 accuracy, +10 reload for 60 s
+    "warcry": 5,              # 4 enemies: -4 morale, -2 melee defence, -35% speed for 45 s
+    "range_effect": 5,        # self: +25 range for 50 s
+    "suppression_fire": 5,    # self +20 reload; target -20 accuracy, -4 morale
+    "pike_wall_formation": 5, "cantabrian_circle": 5,   # formations with big combat bonuses
+    "blinding_grenade": 5,    # target: -75 accuracy, -10 melee attack
+    "shrapnel_shot": 5,       # artillery ammunition, 5 uses
+    # 4: self buffs, or need research / a general's skill as well
+    "banzai": 4, "rapid_volley": 4, "flaming_arrows_ability": 4, "whistling_arrows_ability": 4,
+    "we_stand_and_fight": 4, "rank_fire": 4, "pike_square_formation": 4, "wedge_formation": 4, "active_hiding": 4,
+    # 3: small or situational
+    "stand_firm": 3,          # up to 3 units: +3 melee defence for 30 s
+    "second_wind": 3,         # up to 3 units: fatigue reset
+    "rapid_advance": 3,       # self: +40% speed for 40 s
+    "kneel_fire_ability": 3, "bamboo_wall": 3, "pavisse_deployable": 3,
+}
 # Stat picks are priced by value: a pick's size as a share of that stat's spread (max - min) across
 # all unit types the mod covers; pick n costs max(1, round(PRICE_K * share * n)).
 PRICE_K = 16
@@ -176,11 +223,78 @@ def campaign_unit(camp, key):
     return not key.startswith(SENGOKU_FOREIGN)
 
 
+STATS, NATIVE_KINDS, SCARES = {}, {}, set()
+
+
+def unit_kind(key):
+    """(class, missile weapon, mounted): decides which formation/kit abilities make sense for a unit."""
+    s = STATS.get(key) or {}
+    return (UNITS_CLASS.get(key), s.get("primary_missile_weapon"), s.get("mount_model") is not None)
+
+
+def is_artillery(keys):
+    return any((STATS.get(k) or {}).get("artillery_model") or (STATS.get(k) or {}).get("siege_gun") for k in keys)
+
+
+def has_missiles(keys):
+    """Any unit of the family with a missile weapon or artillery (Accuracy does nothing otherwise)."""
+    return any((STATS.get(k) or {}).get("primary_missile_weapon") or (STATS.get(k) or {}).get("artillery_model")
+               or (STATS.get(k) or {}).get("siege_gun") for k in keys)
+
+
+def already_scares(key):
+    return key in SCARES or bool((STATS.get(key) or {}).get("fear_effect"))
+
+
+def rule_fits(ab, keys):
+    """Does a RULE_* ability suit every unit of the family?"""
+    if ab not in ABILITIES:
+        return False
+    artillery = is_artillery(keys)
+    weapons = {(STATS.get(k) or {}).get("primary_missile_weapon") for k in keys}
+    if ab in RULE_ANY:
+        return not artillery
+    if ab in RULE_MISSILE:
+        return not artillery and None not in weapons
+    if ab in RULE_BOW:
+        return weapons == {"bow"}
+    if ab in RULE_SAME_KIND:
+        return all(unit_kind(k) in NATIVE_KINDS.get(ab, ()) for k in keys)
+    return False
+
+
+def campaign_enablers(camp):
+    """Gated abilities this campaign can enable: by its technologies (not the custom-battle one) or
+    its generals' skills (vanilla: Sengoku skills have no prefix, Rise gem_, Fall bos_)."""
+    tech_prefix = {"sengoku": "shogun_", "gempei": "gempei_", "boshin": "boshin_"}[camp["id"]]
+    used = {r["effect"] for r in load("technology_effects_junction_tables")
+            if r["technology"].startswith(tech_prefix) and r["technology"] != "shogun_custom_battle_tech"}
+    for r in load("character_skill_level_to_effects_junctions_tables"):
+        k = r["character_skill_key"]
+        mine = k.startswith(("gem_",)) if camp["id"] == "gempei" else k.startswith(("bos_",)) if camp["id"] == "boshin" \
+            else not k.startswith(("gem_", "bos_"))
+        if mine:
+            used.add(r["effect_key"])
+    return {r["unit_ability"] for r in load("effect_bonus_value_unit_ability_junctions_tables") if r["effect"] in used}
+
+
+UNITS_CLASS = {}
+
+
 def build_catalog(camp):
     global ABIL_JUNC, ABILITIES, ICON_FILES
     from tools_packread import read_index
     ABIL_JUNC = load("unit_to_unit_abilities_junctions_tables")
     ABILITIES = {r["key"]: r for r in load("unit_abilities_tables")}
+    STATS.clear(); STATS.update({r["key"]: r for r in load("unit_stats_land_tables")})
+    UNITS_CLASS.clear(); UNITS_CLASS.update({r["key"]: r["class"] for r in load("units_tables")})
+    NATIVE_KINDS.clear()
+    for r in ABIL_JUNC:
+        if r["unit_name"] in STATS:
+            NATIVE_KINDS.setdefault(r["ability"], set()).add(unit_kind(r["unit_name"]))
+    SCARES.clear(); SCARES.update(r["unit_record_key"] for r in load("effect_bonus_value_unit_record_junctions_tables")
+                                  if r["bonus_value_id"] == "scares_men")
+    enablers = campaign_enablers(camp)
     ICON_FILES = {n.lower().split("\\")[-1] for n, _, _ in read_index(DATA) if n.lower().startswith("ui\\battle ui\\button icons\\")}
     available = icon_files()
     square = portraits()
@@ -252,19 +366,42 @@ def build_catalog(camp):
                 ab = RANGE_ABILITY if e["effect"] in RANGE_EFFECTS else ABILITY_MAP.get(e["effect"])
                 if ab and ab in ABILITIES and ab not in native and ab not in abilities:
                     abilities.append(ab)
+        # ...then every RULE_* ability that suits the unit type (MP-tree ones first, kept as they are).
+        n_tree = len(abilities)
+        for ab in sorted(RULE_ABILITIES):
+            if ab not in abilities and ab not in native and rule_fits(ab, keys):
+                abilities.append(ab)
+        # One "Fire Arrows" etc. per unit: skip abilities whose name a native/earlier one already has.
+        taken = {ABILITIES[a]["bullet_text"] for a in native if a in ABILITIES}
+        kept = []
         for ab in abilities:
+            if ABILITIES[ab]["bullet_text"] not in taken:
+                taken.add(ABILITIES[ab]["bullet_text"])
+                kept.append(ab)
+        abilities = kept
+        lines = add_universal_lines(merge_stat_lines(lines), keys, available)
+        room = MAX_LINES - len(lines)
+        if len(abilities) > room:
+            print(f"  {camp['id']}: {base}: {len(abilities)} abilities, room for {room}; dropped {abilities[room:]}")
+            abilities = abilities[:max(room, 0)]
+        for ab in abilities:
+            gated = bool(ABILITIES[ab]["requires_effect_enabling"])
             lines["ab_" + ab] = {"key": "ab_" + ab, "label": ABILITIES[ab]["bullet_text"], "bonus": "ability",
                 "ability": ab, "advanced": True, "icon": ability_icon(ab), "levels": [1.0], "kind": "ability",
                 "desc": ABILITIES[ab]["info_card_tooltip_text"],
-                "gated": bool(ABILITIES[ab]["requires_effect_enabling"])}
+                # Gated abilities need what normally unlocks them when this campaign has it; otherwise
+                # the clone waives it (else they could never be used).
+                "gated": gated and ab in enablers, "no_research": gated and ab not in enablers}
         if not lines:
             continue
-        lines = merge_stat_lines(lines)
+        # One line per row under each heading, in line order (stats, passives, abilities).
+        per_column = collections.Counter()
         for line in lines.values():
             kind = line.get("kind", "stat")
             line.setdefault("kind", kind)
             line["column"] = ABILITY_COLUMN.get(line.get("ability"), "melee") if kind == "ability" else COLUMN.get(line["bonus"], "melee")
-            line["row"] = 2 if kind in ("ability", "passive") else 0
+            line["row"] = per_column[line["column"]]
+            per_column[line["column"]] += 1
         catalog.append({"id": base.lower(), "display": units[base]["on_screen_name"],
                         "portrait": family_portrait(base, square), "category": av["unit_ui_category"],
                         "units": keys, "names": sorted({units[k]["on_screen_name"] for k in keys}),
@@ -279,6 +416,7 @@ def build_catalog(camp):
         base = next((u for u in f["units"] if u.lower() == f["id"]), None)
         cost[f["id"]] = units[base]["create_cost"] if base else 0
     catalog.sort(key=lambda f: (order.get(f["category"], 99), cost[f["id"]], f["display"]))
+    fill_median_steps(catalog)
     price_stats(catalog)
     return catalog
 
@@ -329,6 +467,52 @@ def merge_stat_lines(lines):
     return out
 
 
+def add_universal_lines(lines, keys, available):
+    """Every unit type's stat lines (UNIVERSAL_STATS, in that order) and Scare Enemies, after the lines
+    its own tree gives (those keep the tree's step). Accuracy only for units that shoot; Scare Enemies
+    not for units that already frighten; no melee lines for artillery."""
+    out = collections.OrderedDict()
+    artillery = is_artillery(keys)
+    for bonus, label, icon, step, missile_only in UNIVERSAL_STATS:
+        if missile_only and not has_missiles(keys):
+            continue
+        key = "stat_" + bonus
+        if artillery and bonus in NOT_FOR_ARTILLERY and key not in lines:
+            continue
+        if key in lines:
+            lines[key]["from_tree"] = True
+            out[key] = lines[key]
+        else:
+            out[key] = {"key": key, "label": label, "bonus": bonus, "advanced": False, "kind": "stat",
+                        "icon": f"data/ui/frontend ui/skills/{icon if icon in available else 'skill_morale'}.tga",
+                        "levels": None if step is None else [step * i for i in range(1, STAT_MAX_LEVEL + 1)]}
+    for key, line in lines.items():
+        if key not in out and line.get("kind", "stat") == "stat":
+            out[key] = line
+    if "passive_scares_men" not in lines and not artillery and not any(already_scares(k) for k in keys):
+        out["passive_scares_men"] = {"key": "passive_scares_men", "label": "Scare Enemies", "bonus": "scares_men",
+                                     "advanced": True, "icon": STAT_ICON_PATH, "levels": [1.0], "kind": "passive"}
+    for key, line in lines.items():
+        if key not in out:
+            out[key] = line
+    return out
+
+
+def fill_median_steps(catalog):
+    """Lines a unit's tree doesn't give (levels None) use the median step of the trees that do."""
+    steps = collections.defaultdict(list)
+    for fam in catalog:
+        for line in fam["lines"]:
+            if line.get("from_tree") and line["levels"]:
+                steps[line["bonus"]].append(line["levels"][0])
+    for fam in catalog:
+        for line in fam["lines"]:
+            if line["kind"] == "stat" and line["levels"] is None:
+                vals = sorted(steps[line["bonus"]]) or [1.0]
+                step = vals[len(vals) // 2]
+                line["levels"] = [step * i for i in range(1, STAT_MAX_LEVEL + 1)]
+
+
 def bundle_key(fam, line, level):
     return f"vu_{fam}__{line['key']}_{level}"
 
@@ -371,8 +555,24 @@ def build(catalog):
             "eff_loc": eff_loc, "bundle_loc": bundle_loc}
 
 
-def clone_key(ability):
-    return "vu_" + ability
+BITS = {}   # ability -> bit (assign_ability_bits)
+
+
+def assign_ability_bits(catalog):
+    """Bits per ability, unique among the abilities of each unit type (abilities.assign_bits)."""
+    per_unit = collections.defaultdict(set)
+    for fam in catalog:
+        for line in fam["lines"]:
+            if line["kind"] == "ability":
+                for u in ability_targets(fam, line["ability"]):
+                    per_unit[u].add(line["ability"])
+    BITS.clear(); BITS.update(assign_bits(per_unit))
+    print(f"ability bits: {len(BITS)} abilities in {max(BITS.values()) + 1} bits; most on one unit type: "
+          f"{max(len(v) for v in per_unit.values())}")
+
+
+def clone_key(line):
+    return patch_clone_key(BITS[line["ability"]], line["ability"], line.get("no_research", False))
 
 
 def ability_targets(fam, ab):
@@ -399,29 +599,34 @@ def ability_bundle(fam, line, eff_rows, junc_rows, bundle_rows, bjunc_rows, eff_
             eff_rows.append({"effect": ek, "icon": ICON, "priority": 900})
             junc_rows.append({"bonus_value_id": "general_aoe_mod", "effect": ek, "unit_record_key": u})
             eff_loc.append(("effects_description_" + ek, f"{line['label']} ability for {disp} (veteran upgrades)"))
-        bjunc_rows.append({"effect_bundle_key": bk, "effect_key": ek, "value": float(1 << patch_bit(ab))})
+        bjunc_rows.append({"effect_bundle_key": bk, "effect_key": ek, "value": float(1 << BITS[ab])})
 
 
 def clone_tables(catalog):
-    """Clone ability records (one per ability any family offers) and their attachments."""
-    used = sorted({l["ability"] for f in catalog for l in f["lines"] if l["kind"] == "ability"})
-    supported = {k for k, _ in PATCH_ABILITIES}
-    missing = [a for a in used if a not in supported]
-    assert not missing, f"abilities not in the patch's bit table (abilities.py): {missing}"
+    """Clone ability records (one per clone key in use: bit, ability, research waived) and their attachments."""
+    used = {}
+    for f in catalog:
+        for l in f["lines"]:
+            if l["kind"] == "ability":
+                used[clone_key(l)] = l["ability"]
     out = collections.defaultdict(list)
     for table in ("unit_abilities_tables", "unit_special_abilities_tables", "unit_info_card_abilities_strings_tables"):
         rows = {r["key"]: r for r in load(table)}
-        for ab in used:
+        for ck, ab in sorted(used.items()):
             if ab in rows:
-                r = dict(rows[ab], key=clone_key(ab))
+                r = dict(rows[ab], key=ck)
                 if table == "unit_abilities_tables":
                     r.update(supersedes_ability=ab, requires_effect_enabling=True)
                 out[table].append(r)
+    seen = set()
     for fam in catalog:
         for line in fam["lines"]:
             if line["kind"] == "ability":
                 for u in ability_targets(fam, line["ability"]):
-                    out["unit_to_unit_abilities_junctions_tables"].append({"unit_name": u, "ability": clone_key(line["ability"])})
+                    row = (u, clone_key(line))
+                    if row not in seen:
+                        seen.add(row)
+                        out["unit_to_unit_abilities_junctions_tables"].append({"unit_name": u, "ability": row[1]})
     return out
 
 
@@ -587,6 +792,7 @@ if __name__ == "__main__":
     every = [f for c in CAMPAIGNS for f in catalogs[c["id"]]]
     ids = [f["id"] for f in every]
     assert len(ids) == len(set(ids)), "family ids must be unique across campaigns"
+    assign_ability_bits(every)
     b = build(every)
     ct = clone_tables(every)
     files = [

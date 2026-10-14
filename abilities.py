@@ -1,66 +1,39 @@
-"""Abilities the patch can unlock per unit type, and the bit each one uses.
+"""Clone records and bits, shared by the patch, the test pack and the mod.
 
-The patch reads a unit type's `general_aoe_mod` bonus (unit_record scope) as a bitmask: if bit N is
-set, the ability on line N is granted to that unit type even when its clan/army hasn't enabled it.
-Bonus values are floats, so at most 24 bits (exact integers up to 2^24).
+A mod attaches a CLONE ability record to a unit type: key "vuNN_<ability>" (NN = 00-23, the bit),
+supersedes_ability = <ability>, requires_effect_enabling = True. The patched engine grants the real
+<ability> to units of that type when bit NN is set in the type's general_aoe_mod bonus (and any
+research the real ability needs is done - a key "vuNNf<ability>" waives that). Anything may follow
+the five-character prefix. Bonus values are floats, so bits 0-23 (exact up to 2^24).
 
-The enum values come from the engine's hard-coded ability list (empire.retail.dll, name/value pairs
-at 0x115b3b98); `requires_effect_enabling` must be True on these abilities for the gate to run.
+Bits only have to be unique among the clones of ONE unit type, so a mod can offer any number of
+abilities overall: assign_bits() colours the abilities so no unit type has two with the same bit.
 """
+import collections
 
-# (ability key, engine enum value); the list position is the bit.
-ABILITIES = [
-    # everything Veteran Upgrades offers (mod/veteran_upgrades/build.py ABILITY_MAP + range_effect)
-    ("warcry", 45),
-    ("rally", 36),
-    ("inspire_unit", 35),
-    ("stand_firm", 44),
-    ("rapid_volley", 40),
-    ("range_effect", 34),
-    ("banzai", 32),
-    ("blinding_grenade", 22),
-    ("flaming_arrows_ability", 23),
-    ("whistling_arrows_ability", 26),
-    ("second_wind", 41),
-    ("kneel_fire_ability", 57),
-    ("suppression_fire", 61),
-    ("we_stand_and_fight", 43),
-    ("cantabrian_circle", 9),
-    ("heroic_assault", 60),
-    ("ganbatte", 59),
-    # others the engine has for land units
-    ("rapid_advance", 39),
-    ("wedge_formation", 2),
-    ("pike_wall_formation", 6),
-    ("spear_wall", 42),
-    ("active_hiding", 29),
-    ("flaming_arrows_long_range_ability", 24),
-    ("whistling_arrows_long_range_ability", 27),
-]
-assert len(ABILITIES) <= 24
-
-ENUM_COUNT = 70  # values 0..69 (69 = "none")
+MAX_BITS = 24
 
 
-def bit(ability):
-    """The bit (0-23) for an ability key."""
-    return [k for k, _ in ABILITIES].index(ability)
+def clone_key(bit, ability, no_research=False):
+    assert 0 <= bit < MAX_BITS
+    return f"vu{bit:02d}{'f' if no_research else '_'}{ability}"
 
 
-# Rule per table entry (top 3 bits of the byte; low 5 bits = the ability's bit):
-MODE_BIT = 0         # grant if the unit type's general_aoe_mod has this ability's bit (the real rule)
-MODE_ALWAYS = 1      # diagnostic: always grant (proves the routine runs for this ability)
-MODE_AOE_ANY = 2     # diagnostic: grant if general_aoe_mod is non-zero (proves that lookup works)
-MODE_MELEE_ANY = 3   # diagnostic: grant if melee_attack_mod is non-zero (proves unit_record lookups work)
-
-# Diagnostic build (patch.py apply --diag): see testpack/build_testpack.py for what each one tests.
-DIAG_MODES = {"stand_firm": MODE_ALWAYS, "second_wind": MODE_AOE_ANY, "rapid_advance": MODE_MELEE_ANY}
-
-
-def enum_to_bit_table(modes=None):
-    """70-byte lookup: engine enum value -> (mode << 5) | bit, 0xFF if the patch doesn't handle it."""
-    modes = modes or {}
-    table = bytearray([0xFF] * ENUM_COUNT)
-    for i, (key, enum) in enumerate(ABILITIES):
-        table[enum] = (modes.get(key, MODE_BIT) << 5) | i
-    return bytes(table)
+def assign_bits(abilities_per_unit, order=None):
+    """{ability: bit} so that no unit type has two abilities with the same bit (greedy colouring,
+    most-shared abilities first). abilities_per_unit: {unit key: iterable of ability keys}."""
+    conflicts = collections.defaultdict(set)
+    count = collections.Counter()
+    for abs_ in abilities_per_unit.values():
+        abs_ = set(abs_)
+        for a in abs_:
+            count[a] += 1
+            conflicts[a] |= abs_ - {a}
+    bits = {}
+    for a in order or sorted(count, key=lambda a: (-len(conflicts[a]), -count[a], a)):
+        taken = {bits[b] for b in conflicts[a] if b in bits}
+        bit = next(i for i in range(MAX_BITS + 1) if i not in taken)
+        if bit >= MAX_BITS:
+            raise ValueError(f"more than {MAX_BITS} abilities on one unit type (at {a})")
+        bits[a] = bit
+    return bits

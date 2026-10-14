@@ -1,19 +1,15 @@
-"""Build ability_patch_test.pack: data for in-game tests of the DLL patch (clone design).
+"""Build ability_patch_test.pack: data for in-game tests of the DLL patch.
 
 Vanilla Sengoku campaign as Shimazu, no other mods. Nothing vanilla is changed: the pack adds CLONE
-ability records (abpatch_<ability>, supersedes_ability = the real one, requires_effect_enabling =
-True) and attaches them to Yari Ashigaru (and one to Yari Samurai as a control). Shimazu's clan trait
-bundle (t_shimazu) sets general_aoe_mod on Yari Ashigaru to the War Cry + Banzai bits.
+ability records (abilities.clone_key) and attaches them to Yari Ashigaru (and one to Yari Samurai
+as a control). Shimazu's clan trait bundle (t_shimazu) sets general_aoe_mod on Yari Ashigaru to the
+bits of War Cry and Banzai.
 
-Expected with `patch.py apply --diag`, on Shimazu Yari Ashigaru (old and new units):
-  War Cry       bit set                          -> granted
-  Banzai        bit set, but research not done   -> NOT granted (until Banzai is researched)
-  Stand Firm    diagnostic "always"              -> granted, for every clan
-  Second Wind   diagnostic "general_aoe_mod != 0"-> granted
-  Rapid Advance diagnostic "melee_attack_mod != 0" (+1 for Shimazu below) -> granted
-Other clans' Yari Ashigaru: Stand Firm only. Yari Samurai (War Cry clone, no bit): nothing new.
-Warrior monks keep their own War Cry. Without the patch: nothing changes at all.
-With `patch.py apply` (no --diag) the three diagnostics follow the bit rule, so they disappear.
+Expected with the patch, on Shimazu Yari Ashigaru (old and new units):
+  War Cry   bit set                          -> granted
+  Banzai    bit set, but research not done   -> NOT granted (until Banzai is researched)
+Other clans' Yari Ashigaru and everyone's Yari Samurai: nothing new. Warrior monks keep their own
+War Cry. Without the patch: nothing changes at all.
 
 Usage: <lab venv python> testpack/build_testpack.py [--install]
 Needs the Veteran Upgrades lab checkout for its DB/pack tools (SHOGUN2_LAB, default ~/projects/shogun2_modding).
@@ -25,7 +21,7 @@ ROOT = os.path.dirname(HERE)
 LAB = os.environ.get("SHOGUN2_LAB", os.path.expanduser("~/projects/shogun2_modding"))
 sys.path[:0] = [ROOT, LAB]
 
-from abilities import bit
+from abilities import clone_key as _clone_key
 from tools_db import GAME_DATA, encode, load_file, extract
 from tools_loc import read_loc, write_loc
 from tools_packwrite import write_pack
@@ -38,15 +34,19 @@ NAME = "abpatch_test"
 GRANTED_UNIT = "Inf_Spear_Yari_Ashigaru"
 CONTROL_UNIT = "Inf_Spear_Yari_Samurai"
 CLAN_BUNDLE = "t_shimazu"
-BIT_ABILITIES = ["warcry", "banzai"]                      # bits set for Shimazu Yari Ashigaru
-PROBES = ["stand_firm", "second_wind", "rapid_advance"]   # diagnostic rules (abilities.DIAG_MODES)
+BIT_ABILITIES = ["warcry", "banzai"]   # bits 0 and 1, both set for Shimazu Yari Ashigaru
+PROBES = []
 CONTROL_ABILITY = "warcry"
 EFFECT = "abpatch_test_yari_bits"
 MELEE_EFFECT = "abpatch_test_yari_melee"
 
 
+def bit(ability):
+    return BIT_ABILITIES.index(ability)
+
+
 def clone_key(ability):
-    return "abpatch_" + ability
+    return _clone_key(bit(ability), ability)
 
 
 def vanilla(table):

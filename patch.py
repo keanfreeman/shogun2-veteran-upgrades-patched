@@ -5,24 +5,23 @@ Usage (from this folder, with the venv):
   .venv/bin/python patch.py apply             # back up the vanilla DLL, then patch it in place
   .venv/bin/python patch.py restore           # put the vanilla DLL back
   .venv/bin/python patch.py show              # print the patch bytes, disassembled (changes nothing)
-  add --diag to apply/show for the diagnostic table (abilities.DIAG_MODES)
 
 What it changes (empire.retail.dll, Steam build sha256 022fae2e...f874f5):
   The unit-capabilities builder (FUN_1019e580) walks a unit type's ability list and grants each
   ability that has requires_effect_enabling == False, or whose clan/army bonus "enable" is set.
-  Mods attach a CLONE ability record to a unit type: a new unit_abilities row (e.g. vu_warcry) with
-  requires_effect_enabling = True and supersedes_ability = the real ability. The engine ignores
+  Mods attach CLONE ability records to unit types (abilities.py): key "vuNN_<ability>" with
+  supersedes_ability = the real ability and requires_effect_enabling = True. The engine ignores
   unknown ability keys, so without the patch clones do nothing. With the patch, when a clone fails
-  the vanilla check, the unit type's general_aoe_mod bonus (same bonus list) is read as a bitmask
-  (abilities.py); if the real ability's bit is set - and, for an ability that itself needs research,
-  the research is done - the REAL ability is granted in the clone's place.
-  Real abilities, natives and units without clones are never affected.
+  the vanilla check, bit NN of the unit type's general_aoe_mod bonus (same bonus list) decides: if
+  it is set - and, for an ability that itself needs research, the research is done, unless the
+  key is "vuNNf<ability>", which waives it - the REAL ability is granted in the clone's place. Real abilities, natives and units without clones are
+  never affected.
 """
 import hashlib, os, shutil, struct, sys
 
 import capstone, keystone, pefile
 
-from abilities import DIAG_MODES, ENUM_COUNT, enum_to_bit_table
+from abilities import MAX_BITS
 
 GAME = os.environ.get("SHOGUN2_DIR", os.path.expanduser(
     "~/.local/share/Steam/steamapps/common/Total War SHOGUN 2"))
@@ -50,79 +49,69 @@ HOOK2_VA = 0x1019E6F2
 HOOK2_ORIG = bytes.fromhex("8b54242483c304")
 HOOK2_RESUME = 0x1019E6F9
 
-ABILITY_ENUM_FN = 0x101B1670   # cdecl int(UniString* key) -> engine enum (0x45 = none)
 IS_ENABLED_FN = 0x10BCF3E0     # thiscall int(list, ability, 0): the vanilla research/skill check
 BONUS_LOOKUP_FN = 0x10BD5EE0   # thiscall int(list, category, record, 0, bonus_id) -> round(value)
 # (key order as in the engine's own wrappers, e.g. 0x10bcf460 for unit_record and 0x10bcf3e0 for abilities)
-ENUM_NONE = 0x45
 CAT_UNIT_RECORD = 0x10         # bonus category 16 = unit_record
 BONUS_GENERAL_AOE = 9          # index of general_aoe_mod in the unit_record bonus list
-BONUS_MELEE_ATTACK = 4         # index of melee_attack_mod (diagnostic mode 3)
 UNIT_ABILITIES_OFFSET = 0xFC   # unit record: ability vector (cap, count, data)
 ABILITY_SUPERSEDES = 0x1C      # UNIT_ABILITY_RECORD: resolved supersedes_ability pointer
 ABILITY_GATED = 0x20           # UNIT_ABILITY_RECORD: requires_effect_enabling
+# UNIT_ABILITY_RECORD starts with its key, a UniString { length, capacity, UTF-16 data* }
+KEY_LENGTH, KEY_DATA = 0x0, 0x8
 
 TEXT_VSIZE_PATCHED = 0x159FE00  # .text VirtualSize grown to its raw size, so the tail is code
 CAVE_VA = BASE + 0x1000 + 0x159FC40
-TABLE_OFFSET = 0xD0             # enum->bit table
-CAVE2_OFFSET = 0x120            # hook-2 routine
+CAVE2_OFFSET = 0xE0             # hook-2 routine
 SIGNATURE_OFFSET = 0x150        # ASCII signature + version, for mods to detect the patch
-SIGNATURE = b"VU_ABILITY_PATCH 2\0"
+SIGNATURE = b"VU_ABILITY_PATCH 3\0"
 
 ASM = f"""
     test eax, eax
     jnz grant
-    push edi
-    call {ABILITY_ENUM_FN:#x}
-    add esp, 4
-    cmp eax, {ENUM_NONE:#x}
-    jne skip
-    mov eax, dword ptr [edi + {ABILITY_SUPERSEDES:#x}]
-    test eax, eax
+    mov edx, dword ptr [edi + {ABILITY_SUPERSEDES:#x}]
+    test edx, edx
     jz skip
-    push eax
-    push eax
-    call {ABILITY_ENUM_FN:#x}
-    add esp, 4
-    cmp eax, {ENUM_COUNT}
-    jae skip1
-    call getpc
-getpc:
-    pop edx
-    movzx eax, byte ptr [edx + eax + TABLE_DISP]
-    cmp al, 0xff
-    je skip1
-    mov edx, eax
-    shr edx, 5
-    and eax, 0x1f
-    cmp edx, 1
-    je unlocked
-    push eax
+    cmp dword ptr [edi + {KEY_LENGTH:#x}], 5
+    jb skip
+    mov ecx, dword ptr [edi + {KEY_DATA:#x}]
+    cmp word ptr [ecx], 0x76
+    jne skip
+    cmp word ptr [ecx + 2], 0x75
+    jne skip
+    cmp word ptr [ecx + 8], 0x5f
+    je key_ok
+    cmp word ptr [ecx + 8], 0x66
+    jne skip
+key_ok:
+    movzx eax, word ptr [ecx + 4]
+    sub eax, 0x30
+    cmp eax, 9
+    ja skip
+    imul eax, eax, 10
+    movzx ecx, word ptr [ecx + 6]
+    sub ecx, 0x30
+    cmp ecx, 9
+    ja skip
+    add eax, ecx
+    cmp eax, {MAX_BITS}
+    jae skip
     push edx
-    mov ecx, dword ptr [esp + 0x34]
-    mov eax, dword ptr [esp + 0x30]
+    push eax
+    mov ecx, dword ptr [esp + 0x30]
+    mov eax, dword ptr [esp + 0x2c]
     sub eax, {UNIT_ABILITIES_OFFSET:#x}
-    cmp edx, 3
-    mov edx, {BONUS_GENERAL_AOE}
-    jne push_id
-    mov edx, {BONUS_MELEE_ATTACK}
-push_id:
-    push edx
+    push {BONUS_GENERAL_AOE}
     push 0
     push eax
     push {CAT_UNIT_RECORD:#x}
     call {BONUS_LOOKUP_FN:#x}
-    pop edx
     pop ecx
-    test edx, edx
-    jz bit_test
-    test eax, eax
-    jnz unlocked
-    jmp skip1
-bit_test:
     bt eax, ecx
     jnc skip1
-unlocked:
+    mov eax, dword ptr [edi + {KEY_DATA:#x}]
+    cmp word ptr [eax + 8], 0x66
+    je substitute
     mov eax, dword ptr [esp]
     cmp byte ptr [eax + {ABILITY_GATED:#x}], 0
     je substitute
@@ -144,8 +133,9 @@ skip1:
 skip:
     jmp {SKIP_VA:#x}
 """
+# Clone check: supersedes set, key "vuNN_..." or "vuNNf..." (UTF-16 'v','u', two digits, '_' or 'f'), NN < MAX_BITS.
 # Stack bookkeeping: at hook 1 esp is as at 1019e635 (vector [esp+0x24], list [esp+0x28]).
-# After `push eax` (real ability) they are at +0x28/+0x2c; after the bit/mode pushes at +0x30/+0x34.
+# After `push edx` (real ability) they are at +0x28/+0x2c; after `push eax` (bit) at +0x2c/+0x30.
 # Substitution: the grant path appends *ebx, so ebx is pointed at a scratch local holding the real
 # ability; hook 2 puts the saved cursor back before the loop advances.
 
@@ -166,26 +156,14 @@ def _ks():
     return keystone.Ks(keystone.KS_ARCH_X86, keystone.KS_MODE_32)
 
 
-def assemble(diag=False):
-    """Patch area bytes: routine 1, padding, enum->bit table, routine 2, signature."""
+def assemble():
+    """Patch area bytes: routine 1, routine 2, signature."""
     ks = _ks()
-    disp = 0
-    for _ in range(4):  # TABLE_DISP depends on where getpc lands
-        code = bytes(ks.asm(ASM.replace("TABLE_DISP", hex(disp)), CAVE_VA)[0])
-        getpc = CAVE_VA + code.index(b"\xe8\x00\x00\x00\x00\x5a") + 5
-        new = (CAVE_VA + TABLE_OFFSET) - getpc
-        if new == disp:
-            break
-        disp = new
-    else:
-        raise RuntimeError("TABLE_DISP did not settle")
-    table = enum_to_bit_table(DIAG_MODES if diag else None)
+    code = bytes(ks.asm(ASM, CAVE_VA)[0])
     code2 = bytes(ks.asm(ASM2, CAVE_VA + CAVE2_OFFSET)[0])
-    assert len(code) <= TABLE_OFFSET and TABLE_OFFSET + len(table) <= CAVE2_OFFSET
-    assert CAVE2_OFFSET + len(code2) <= SIGNATURE_OFFSET
+    assert len(code) <= CAVE2_OFFSET and CAVE2_OFFSET + len(code2) <= SIGNATURE_OFFSET
     out = bytearray(b"\xcc" * SIGNATURE_OFFSET)
     out[:len(code)] = code
-    out[TABLE_OFFSET:TABLE_OFFSET + len(table)] = table
     out[CAVE2_OFFSET:CAVE2_OFFSET + len(code2)] = code2
     return bytes(out) + SIGNATURE
 
@@ -234,10 +212,10 @@ def file_offsets(data=None):
     return {"hook": va2off(HOOK_VA), "signature": va2off(CAVE_VA) + SIGNATURE_OFFSET}
 
 
-def patched_image(data, diag=False):
+def patched_image(data):
     pe = pefile.PE(data=data, fast_load=True)
     text, va2off, vsize_off = offsets(pe)
-    cave = assemble(diag)
+    cave = assemble()
     for va, orig, _ in hooks():
         assert data[va2off(va):va2off(va) + len(orig)] == orig, f"unexpected bytes at {va:#x}"
     cave_off = va2off(CAVE_VA)
@@ -259,14 +237,13 @@ def disasm(code, va):
         print(f"  {ins.address:08x}  {ins.bytes.hex():<16} {ins.mnemonic} {ins.op_str}")
 
 
-def cmd_show(diag=False):
+def cmd_show():
     for va, orig, new in hooks():
         print(f"hook @ {va:#x}: {orig.hex()} -> {new.hex()}")
         disasm(new, va)
-    cave = assemble(diag)
+    cave = assemble()
     print(f"routine 1 @ {CAVE_VA:#x}:")
-    disasm(cave[:TABLE_OFFSET].rstrip(b"\xcc"), CAVE_VA)
-    print(f"table @ {CAVE_VA + TABLE_OFFSET:#x}:", cave[TABLE_OFFSET:TABLE_OFFSET + ENUM_COUNT].hex())
+    disasm(cave[:CAVE2_OFFSET].rstrip(b"\xcc"), CAVE_VA)
     print(f"routine 2 @ {CAVE_VA + CAVE2_OFFSET:#x}:")
     disasm(cave[CAVE2_OFFSET:SIGNATURE_OFFSET].rstrip(b"\xcc"), CAVE_VA + CAVE2_OFFSET)
     print(f"signature @ {CAVE_VA + SIGNATURE_OFFSET:#x}: {SIGNATURE!r}")
@@ -280,10 +257,8 @@ def state():
     src = BACKUP if os.path.exists(BACKUP) else DLL
     with open(src, "rb") as f:
         base = f.read()
-    if hashlib.sha256(base).hexdigest() == VANILLA_SHA256:
-        for diag, name in ((False, "patched"), (True, "patched (diagnostic)")):
-            if h == hashlib.sha256(patched_image(base, diag)).hexdigest():
-                return name
+    if hashlib.sha256(base).hexdigest() == VANILLA_SHA256 and h == hashlib.sha256(patched_image(base)).hexdigest():
+        return "patched"
     return "unknown (an older revision of this patch, or another change)"
 
 
@@ -292,12 +267,11 @@ def cmd_status():
     print(f"  backup: {'present' if os.path.exists(BACKUP) else 'none'} ({BACKUP})")
 
 
-def cmd_apply(diag=False):
+def cmd_apply():
     """Patch from the vanilla bytes: the backup if there is one (so a DLL patched by an older
     revision of this script is simply replaced), otherwise the current DLL if it is vanilla."""
-    want = "patched (diagnostic)" if diag else "patched"
-    if state() == want:
-        print("already", want); return
+    if state() == "patched":
+        print("already patched"); return
     if os.path.exists(BACKUP) and sha256(BACKUP) == VANILLA_SHA256:
         src = BACKUP
     elif sha256(DLL) == VANILLA_SHA256:
@@ -306,12 +280,12 @@ def cmd_apply(diag=False):
     else:
         raise SystemExit("no vanilla DLL or backup; use Steam 'Verify integrity of game files' first")
     with open(src, "rb") as f:
-        out = patched_image(f.read(), diag)
+        out = patched_image(f.read())
     tmp = DLL + ".tmp"
     with open(tmp, "wb") as f:
         f.write(out)
     os.replace(tmp, DLL)
-    print(want + ":", DLL)
+    print("patched:", DLL)
     print("vanilla backup:", BACKUP)
 
 
@@ -326,8 +300,4 @@ def cmd_restore():
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
-    diag = "--diag" in sys.argv
-    if cmd in ("apply", "show"):
-        {"apply": cmd_apply, "show": cmd_show}[cmd](diag)
-    else:
-        {"status": cmd_status, "restore": cmd_restore}[cmd]()
+    {"status": cmd_status, "apply": cmd_apply, "restore": cmd_restore, "show": cmd_show}[cmd]()
