@@ -41,7 +41,8 @@ GRANT_VA = 0x1019E649
 SKIP_VA = 0x1019E6F2
 
 ABILITY_ENUM_FN = 0x101B1670   # cdecl int(UniString* key) -> engine enum (0x45 = none)
-BONUS_LOOKUP_FN = 0x10BD5EE0   # thiscall int(list, category, record, bonus_id, extra) -> round(value)
+BONUS_LOOKUP_FN = 0x10BD5EE0   # thiscall int(list, category, record, 0, bonus_id) -> round(value)
+# (key order as in the engine's own wrappers, e.g. 0x10bcf460 for unit_record and 0x10bcf3e0 for abilities)
 CAT_UNIT_RECORD = 0x10         # bonus category 16 = unit_record
 BONUS_GENERAL_AOE = 9          # index of general_aoe_mod in the unit_record bonus list
 UNIT_ABILITIES_OFFSET = 0xFC   # unit record: ability vector (cap, count, data)
@@ -76,13 +77,13 @@ getpc:
     mov ecx, dword ptr [esp + 0x30]
     mov eax, dword ptr [esp + 0x2c]
     sub eax, {UNIT_ABILITIES_OFFSET:#x}
-    push 0
     cmp edx, 3
     mov edx, {BONUS_GENERAL_AOE}
     jne push_id
     mov edx, {BONUS_MELEE_ATTACK}
 push_id:
     push edx
+    push 0
     push eax
     push {CAT_UNIT_RECORD:#x}
     call {BONUS_LOOKUP_FN:#x}
@@ -208,21 +209,20 @@ def cmd_status():
 
 
 def cmd_apply(diag=False):
-    s = state()
+    """Patch from the vanilla bytes: the backup if there is one (so a DLL patched by an older
+    revision of this script is simply replaced), otherwise the current DLL if it is vanilla."""
     want = "patched (diagnostic)" if diag else "patched"
-    if s == want:
+    if state() == want:
         print("already", want); return
-    if s.startswith("patched"):
-        cmd_restore()
-        s = state()
-    if s != "vanilla":
-        raise SystemExit("the DLL is not the known vanilla build; refusing to patch (Steam 'Verify integrity' restores it)")
-    with open(DLL, "rb") as f:
-        data = f.read()
-    if not os.path.exists(BACKUP):
+    if os.path.exists(BACKUP) and sha256(BACKUP) == VANILLA_SHA256:
+        src = BACKUP
+    elif sha256(DLL) == VANILLA_SHA256:
         shutil.copy2(DLL, BACKUP)
-    assert sha256(BACKUP) == VANILLA_SHA256
-    out = patched_image(data, diag)
+        src = BACKUP
+    else:
+        raise SystemExit("no vanilla DLL or backup; use Steam 'Verify integrity of game files' first")
+    with open(src, "rb") as f:
+        out = patched_image(f.read(), diag)
     tmp = DLL + ".tmp"
     with open(tmp, "wb") as f:
         f.write(out)
