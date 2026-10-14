@@ -93,7 +93,12 @@ RULE_SAME_KIND = {"pike_wall_formation", "pike_square_formation", "wedge_formati
 # battle types by comparing the LIST ENTRY's key with those names; a clone (vuNN_...) never matches,
 # so it would be granted in every battle type.
 RULE_ABILITIES = RULE_ANY | RULE_MISSILE | RULE_BOW | RULE_SAME_KIND
-MAX_LINES = 28   # nodes in the MP skill-tree popup
+# The MP skill-tree popup: 4 columns (headings), and 6 rows fit above its button bar (2026-10-14
+# screenshot: a 7th row sits on the bar). 24 slots; the popup itself has 28 nodes.
+COLUMNS = ["leadership", "ranged", "physical", "melee"]
+MAX_ROWS = 6
+SPILL_ORDER = ["physical", "ranged", "leadership", "melee"]   # where lines go when their column is full
+MAX_LINES = len(COLUMNS) * MAX_ROWS
 # Upgrades EVERY unit type gets, whether or not its multiplayer tree has them (from the MoSS edition):
 #   (bonus_value_id, label, icon, step per level or None = median of the trees that have it, missile units only)
 UNIVERSAL_STATS = [
@@ -399,14 +404,18 @@ def build_catalog(camp):
                 "gated": gated and ab in enablers, "no_research": gated and ab not in enablers}
         if not lines:
             continue
-        # One line per row under each heading, in line order (stats, passives, abilities).
+        # One line per row under each heading, in line order (stats, passives, abilities); a line whose
+        # column is full (MAX_ROWS) goes to the emptiest other column (SPILL_ORDER breaks ties).
         per_column = collections.Counter()
         for line in lines.values():
             kind = line.get("kind", "stat")
             line.setdefault("kind", kind)
-            line["column"] = ABILITY_COLUMN.get(line.get("ability"), "melee") if kind == "ability" else COLUMN.get(line["bonus"], "melee")
-            line["row"] = per_column[line["column"]]
-            per_column[line["column"]] += 1
+            col = ABILITY_COLUMN.get(line.get("ability"), "melee") if kind == "ability" else COLUMN.get(line["bonus"], "melee")
+            if per_column[col] >= MAX_ROWS:
+                col = min(SPILL_ORDER, key=lambda c: (per_column[c], SPILL_ORDER.index(c)))
+            assert per_column[col] < MAX_ROWS, f"{base}: more than {MAX_LINES} lines"
+            line["column"], line["row"] = col, per_column[col]
+            per_column[col] += 1
         catalog.append({"id": base.lower(), "display": units[base]["on_screen_name"],
                         "portrait": family_portrait(base, square), "category": av["unit_ui_category"],
                         "units": keys, "names": sorted({units[k]["on_screen_name"] for k in keys}),
