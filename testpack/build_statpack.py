@@ -3,7 +3,7 @@
 Vanilla Sengoku campaign as Shimazu, no other mods. Shimazu's clan trait bundle (t_shimazu) gets
 unit_record bonuses that only patch v4 understands, with large values so the unit cards show them:
   Yari Ashigaru   charge_bonus +50, mod_land_movement_battle +100 (% speed); control melee_attack_mod +5
-  Bow Ashigaru    range_mod +200 (%), ammo_mod +100 (%), reload +100 (%); control accuracy_mod +20
+  Bow Ashigaru    range_mod +800 (metres; 150 -> 950), ammo_mod +100 (%), reload +100 (%); control accuracy_mod +20
 Expected with patch v4, on Shimazu's units (old and new), on the unit card and in battle: those
 stats raised. Other clans' units and Shimazu's Yari Samurai: unchanged. Without the patch (or with
 v3): nothing changes - the game doesn't know these bonus names for unit types.
@@ -30,7 +30,7 @@ BONUSES = [  # (unit, bonus, value, description)
     # v4 bonuses
     ("Inf_Spear_Yari_Ashigaru", "charge_bonus", 50, "%+n charge bonus for Yari Ashigaru (stat patch test)"),
     ("Inf_Spear_Yari_Ashigaru", "mod_land_movement_battle", 100, "%+n%% battle speed for Yari Ashigaru (stat patch test)"),
-    ("Inf_Missile_Bow_Ashigaru", "range_mod", 200, "%+n%% range for Bow Ashigaru (stat patch test)"),
+    ("Inf_Missile_Bow_Ashigaru", "range_mod", 800, "%+n%% range for Bow Ashigaru (stat patch test)"),
     ("Inf_Missile_Bow_Ashigaru", "ammo_mod", 100, "%+n%% ammunition for Bow Ashigaru (stat patch test)"),
     ("Inf_Missile_Bow_Ashigaru", "reload", 100, "%+n%% reload skill for Bow Ashigaru (stat patch test)"),
 ]

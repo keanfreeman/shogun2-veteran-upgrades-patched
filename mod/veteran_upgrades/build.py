@@ -99,7 +99,8 @@ RULE_ABILITIES = RULE_ANY | RULE_MISSILE | RULE_BOW | RULE_GUN_INFANTRY | RULE_S
 COLUMNS = ["leadership", "ranged", "physical", "melee"]
 MAX_ROWS = 6
 SPILL_ORDER = ["physical", "ranged", "leadership", "melee"]   # where lines go when their column is full
-MAX_LINES = len(COLUMNS) * MAX_ROWS
+MAX_LINES = len(COLUMNS) * MAX_ROWS   # per page
+MAX_PAGES = 2   # the upgrade panel pages through a unit type's lines (vu.lua page button)
 # Upgrades EVERY unit type gets, whether or not its multiplayer tree has them (from the MoSS edition):
 #   (bonus_value_id, label, icon, step per level or None = median of the trees that have it, missile units only)
 UNIVERSAL_STATS = [
@@ -424,7 +425,7 @@ def build_catalog(camp):
                 kept.append(ab)
         abilities = kept
         lines = add_universal_lines(merge_stat_lines(lines), keys, available)
-        room = MAX_LINES - len(lines)
+        room = MAX_PAGES * MAX_LINES - len(lines)
         if len(abilities) > room:
             print(f"  WARNING {camp['id']}: {base}: {len(abilities)} abilities, room for {room}; dropped {abilities[room:]}")
             abilities = abilities[:max(room, 0)]
@@ -442,16 +443,21 @@ def build_catalog(camp):
         if not lines:
             continue
         # One line per row under each heading, in line order (stats, passives, abilities); a line whose
-        # column is full (MAX_ROWS) goes to the emptiest other column (SPILL_ORDER breaks ties).
-        per_column = collections.Counter()
+        # column is full (MAX_ROWS) goes to the emptiest other column (SPILL_ORDER breaks ties), and
+        # when every column of the page is full, onto the next page.
+        page, per_column = 1, collections.Counter()
         for line in lines.values():
             kind = line.get("kind", "stat")
             line.setdefault("kind", kind)
             col = ABILITY_COLUMN.get(line.get("ability"), "melee") if kind == "ability" else COLUMN.get(line["bonus"], "melee")
             if per_column[col] >= MAX_ROWS:
-                col = min(SPILL_ORDER, key=lambda c: (per_column[c], SPILL_ORDER.index(c)))
-            assert per_column[col] < MAX_ROWS, f"{base}: more than {MAX_LINES} lines"
-            line["column"], line["row"] = col, per_column[col]
+                spill = min(SPILL_ORDER, key=lambda c: (per_column[c], SPILL_ORDER.index(c)))
+                if per_column[spill] >= MAX_ROWS:
+                    page, per_column = page + 1, collections.Counter()
+                else:
+                    col = spill
+            assert page <= MAX_PAGES, f"{base}: more than {MAX_PAGES * MAX_LINES} lines"
+            line["column"], line["row"], line["page"] = col, per_column[col], page
             per_column[col] += 1
         catalog.append({"id": base.lower(), "display": units[base]["on_screen_name"],
                         "portrait": family_portrait(base, square), "category": av["unit_ui_category"],
@@ -864,7 +870,7 @@ def lua_data(catalog, camp):
                           "bonus": line["bonus"], "stat": BONUS_LABEL.get(line["bonus"], line["label"]),
                           "unit": STAT_UNIT.get(line["bonus"], ("",))[0],
                           "needs_patch": ability or line["bonus"] in PATCH_STATS,
-                          "kind": line["kind"], "column": line["column"], "row": line["row"],
+                          "kind": line["kind"], "column": line["column"], "row": line["row"], "page": line["page"],
                           "desc": line.get("desc", ""), "gated": line.get("gated", False), "requires": line.get("requires", ""),
                           "levels": [{"bundle": bundle_key(fam["id"], line, i), "value": v,
                                       "cost": ABILITY_COSTS.get(line.get("ability"), ABILITY_COST) if ability

@@ -108,4 +108,21 @@ local dropin = MOCK.node("button_mp_dropin", popup)
 F("PreBattle", {})
 check(dropin.visible == false and dropin.disabled == true, "pre-battle drop-in button hidden")
 
+-- Upgrade pages: Bow Ashigaru have more lines than one page holds; the rest are on page 2.
+for i = 1, 10 do MOCK.battle({ "Inf_Missile_Bow_Ashigaru" }) end
+MOCK.click(MOCK.node_labelled("Bow Ashigaru"))   -- the list is still open from the load check
+local page_btn = MOCK.find("vu_page")
+check(page_btn and page_btn.visible and string.find(MOCK.label_of(page_btn) or "", "Page 1 of 2", 1, true), "upgrade panel shows Page 1 of 2")
+check(MOCK.node_labelled("Whistling Arrows") == nil, "page-2 line hidden on page 1")
+check(MOCK.node_labelled("Reload") ~= nil, "page-1 line shown")
+MOCK.click(page_btn)
+local wa = MOCK.node_labelled("Whistling Arrows")
+check(wa ~= nil and string.find(MOCK.label_of(page_btn) or "", "Page 2 of 2", 1, true), "page 2 shows its line")
+check(MOCK.node_labelled("Reload") == nil, "page-1 line hidden on page 2")
+MOCK.click(wa)
+MOCK.click(page_btn)
+check(MOCK.node_labelled("Reload") ~= nil, "page button cycles back to page 1")
+MOCK.click(MOCK.find("button_ok"))
+check(MOCK.bundles["shimazu/vu_inf_missile_bow_ashigaru__ab_whistling_arrows_ability_1"], "line bought on page 2 applied on OK")
+
 RESULT = { passed = passed, failures = failures }

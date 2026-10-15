@@ -219,6 +219,15 @@ local VU_NODE_PREF = {
 }
 
 local vu_make_hoverable, vu_log_bounds, vu_refresh_retrain, vu_show_title, vu_refresh_page_button, vu_hide_page_button   -- defined with the list code below
+local vu_refresh_tree_page_button
+
+-- Upgrade pages: build.py puts each line on page 1 or 2 (24 slots a page); the panel shows one page.
+local function vu_fam_pages(fam)
+	local n = 1
+	for _, line in ipairs(fam.lines) do if (line.page or 1) > n then n = line.page end end
+	return n
+end
+local function vu_on_page(line) return (line.page or 1) == (VU.tree_page or 1) end
 local function vu_child(addr, id)
 	local ok, r = pcall(function() return UIComponent(addr):Find(id) end)
 	if ok then return r end
@@ -358,17 +367,17 @@ local function vu_layout(fam)
 	end
 	-- stats per column, in line order
 	local col_stats, stat_seen = {}, {}
-	for _, line in ipairs(fam.lines) do
+	for _, line in ipairs(fam.lines) do if vu_on_page(line) then
 		-- Lines sharing a column and a row sit side by side (build.py gives each line its own row).
 		local col, slot = line.column, line.kind == "ability" and line.key or line.bonus
 		col_stats[col] = col_stats[col] or {}
 		local tag = col .. ":" .. line.row
 		col_stats[tag] = col_stats[tag] or {}
 		if not stat_seen[slot] then stat_seen[slot] = true table.insert(col_stats[tag], slot) end
-	end
+	end end
 	-- Keep the last row above the OK/Cancel bar: squeeze the row spacing if the tallest column needs it.
 	local max_row = 0
-	for _, line in ipairs(fam.lines) do if line.row > max_row then max_row = line.row end end
+	for _, line in ipairs(fam.lines) do if vu_on_page(line) and line.row > max_row then max_row = line.row end end
 	if max_row > 0 and VU.nodes[1] then
 		pcall(function()
 			local _, ok_y = UIComponent(vu_child(VU.panel_addr, "button_ok")):Position()
@@ -383,7 +392,7 @@ local function vu_layout(fam)
 	end
 	VU.geom = { top_y = top_y, row_h = row_h }
 	local spare = 1
-	for i, line in ipairs(fam.lines) do
+	for i, line in ipairs(fam.lines) do if vu_on_page(line) then
 		local nd = VU.nodes[spare]
 		if not nd then break end
 		spare = spare + 1
@@ -404,7 +413,7 @@ local function vu_layout(fam)
 		local cx = (hx or nd.x) + hw / 2 + (k - (#stats + 1) / 2) * spacing
 		local y = top_y + line.row * row_h
 		pcall(function() UIComponent(nd.addr):MoveTo(math.floor(cx - nw / 2), y) end)
-	end
+	end end
 	return assign
 end
 
@@ -416,8 +425,8 @@ local function vu_refresh_panel()
 	for _, h in pairs(VU.cat_headers or {}) do pcall(function() UIComponent(h.addr):SetVisible(false) end) end
 	vu_set_header(fam.name .. " (all in clan)", p.points)
 	vu_set_buttons(true, fam)
-	vu_hide_page_button()
 	vu_guard("title", vu_show_title, fam)
+	vu_guard("page button", vu_refresh_tree_page_button, fam)
 	local fee, committed = vu_respec_fee(fam)
 	pcall(function()
 		UIComponent(vu_child(VU.panel_addr, "button_reset")):SetTooltipText(committed > 0 and not p.reset_fee_charged
@@ -427,8 +436,9 @@ local function vu_refresh_panel()
 	-- Title: which unit type this panel upgrades (clan-wide).
 	VU.node_line = {}
 	local shown = {}
-	local assign = VU.layout_for == fam.id and VU.assign or vu_layout(fam)
-	VU.assign, VU.layout_for = assign, fam.id
+	local layout_key = fam.id .. ":" .. (VU.tree_page or 1)
+	local assign = VU.layout_for == layout_key and VU.assign or vu_layout(fam)
+	VU.assign, VU.layout_for = assign, layout_key
 	for i, line in ipairs(fam.lines) do
 		local nd = assign[i]
 		if VU_DEBUG then vu_log("refresh:", line.key, "level", p.levels[line.key] or 0, "node", nd and nd.key, "icon", line.icon) end
@@ -616,6 +626,27 @@ end
 
 vu_hide_page_button = function()
 	if VU.page_node then pcall(function() UIComponent(VU.page_node.addr):SetVisible(false) end) end
+end
+
+-- Upgrade-panel page button: the same node, beside the title in the bottom bar.
+vu_refresh_tree_page_button = function(fam)
+	local pages = vu_fam_pages(fam)
+	if pages <= 1 then vu_hide_page_button() return end
+	local nd = vu_page_node()
+	if not nd then return end
+	vu_set_text(nd.name_addr, string.format("Page %d of %d", VU.tree_page or 1, pages))
+	local tip = string.format("More upgrades\nShowing page %d of %d - click for the next page.\nChoices on every page are kept until you press OK or Cancel.", VU.tree_page or 1, pages)
+	for _, a in ipairs({ nd.addr, nd.icon_addr, nd.name_addr }) do pcall(function() UIComponent(a):SetTooltipText(tip, true) end) end
+	pcall(function() UIComponent(nd.addr):SetState("active") end)
+	pcall(function() UIComponent(nd.icon_addr):SetState("active") end)
+	pcall(function() UIComponent(nd.icon_addr):ShaderTechniqueSet("normal_t0", true) end)
+	pcall(function()
+		local t = UIComponent(VU.title_node.addr)
+		local tx, ty = t:Position()
+		local c = UIComponent(nd.addr)
+		c:MoveTo(math.floor(tx + t:Width() + 30), math.floor(ty))
+		c:SetVisible(true)
+	end)
 end
 
 vu_refresh_page_button = function()
@@ -848,7 +879,7 @@ local function vu_open(fam, from_list)
 	if not vu_create_panel() then return end
 	vu_begin_edit(fam)
 	VU.retrain_armed = false
-	if VU.layout_for ~= fam.id then VU.layout_for = nil end
+	VU.layout_for, VU.tree_page = nil, 1
 	VU.mode, VU.open_family, VU.from_list = "tree", fam, from_list == true
 	vu_show_headers(true)
 	VU.panel:SetVisible(true)
@@ -1570,6 +1601,11 @@ local function vu_handle_click(addr, id)
 		if id == "button_ok" then vu_close(true) return end
 		if id == "button_cancel" then vu_close(false) return end
 		if id == "button_reset" then vu_pending_reset() vu_refresh_panel() return end
+		if VU.page_node and vu_is_node(addr, VU.page_node) then
+			VU.tree_page = (VU.tree_page or 1) % vu_fam_pages(VU.pending.fam) + 1
+			vu_refresh_panel()
+			return
+		end
 		if vu_is_retrain(addr) then
 			if VU.retrain_armed then
 				VU.retrain_armed = false
