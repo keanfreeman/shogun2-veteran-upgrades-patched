@@ -5,7 +5,7 @@ The player patchers ([player/](../player/)) write exactly these bytes; `tools/ve
 re-assembles them from the source below and checks that, on every push (GitHub Actions).
 
 The patch is for `empire.retail.dll` of the Steam Windows build (SHA-256 `022fae2e2da92b59b8b1b8ee52887003c624e3c8eca060b209f5d792a7f874f5`).
-It changes 440 bytes in 12 places and nothing else:
+It changes 446 bytes in 14 places and nothing else:
 
 | What | File offset |
 |---|---|
@@ -17,6 +17,8 @@ It changes 440 bytes in 12 places and nothing else:
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`range_mod`, unit_record id 0x17) | `0x151c14` |
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`mod_land_movement_battle`, unit_record id 0x19) | `0x151c46` |
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`ammo_mod`, unit_record id 0x18) | `0x151c78` |
+| Drop-in off: the campaign's drop-in battles flag is always computed as off (the preference defaults to on) | `0x11854bd` |
+| Drop-in off: the drop-in flag's setter always stores off | `0x1188401` |
 | Drop-in off: the handler for a drop-in invitation ("Drop-in battle available") returns before telling the UI | `0x1153316` |
 | Drop-in off: starting to host a drop-in battle (CampaignUI.PlayDropInBattle) returns 0, not started | `0x11236b0` |
 | Parser hook: the unit_record bonus-name parser's not-found exit jumps to the parser extension | `0xbd315d` |
@@ -35,7 +37,8 @@ What it does, in words:
   for a unit type (see the table below).
 * **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
   modified game file it could get the player's Steam account banned (Valve Anti-Cheat). Invitations
-  to join someone else's battle are never shown, and hosting one never starts.
+  to join someone else's battle are never shown, and battles are never offered to other players
+  (the game's drop-in setting is treated as off; hosting is refused as a backstop).
 
 The stat bonuses:
 
@@ -92,6 +95,18 @@ Original at 0x10152878 (file offset 0x151c78):
 10152878  e843caa700       call 0x10bcf2c0
 Patched:
 10152878  e8ffe44401       call 0x115a0d7c
+
+Original at 0x111860bd (file offset 0x11854bd):
+111860bd  b001             mov al, 1
+Patched:
+111860bd  30c0             xor al, al
+
+Original at 0x11189001 (file offset 0x1188401):
+11189001  8a5c2408         mov bl, byte ptr [esp + 8]
+Patched:
+11189001  31db             xor ebx, ebx
+11189003  90               nop
+11189004  90               nop
 
 Original at 0x11153f16 (file offset 0x1153316):
 11153f16  83ec24           sub esp, 0x24

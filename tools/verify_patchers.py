@@ -77,9 +77,12 @@ def patch_doc():
                   patch.HOOK2_VA: "Hook 2, same loop: a 7-byte instruction pair now jumps to routine 2",
                   patch.PARSE_HOOK_VA: "Parser hook: the unit_record bonus-name parser's not-found exit "
                                        "jumps to the parser extension"}
-    hook_names[patch.DROPIN_PATCHES[0][0]] = ("Drop-in off: the handler for a drop-in invitation (\"Drop-in battle "
+    hook_names[patch.DROPIN_PATCHES[0][0]] = ("Drop-in off: the campaign's drop-in battles flag is always "
+                                              "computed as off (the preference defaults to on)")
+    hook_names[patch.DROPIN_PATCHES[1][0]] = ("Drop-in off: the drop-in flag's setter always stores off")
+    hook_names[patch.DROPIN_PATCHES[2][0]] = ("Drop-in off: the handler for a drop-in invitation (\"Drop-in battle "
                                               "available\") returns before telling the UI")
-    hook_names[patch.DROPIN_PATCHES[1][0]] = ("Drop-in off: starting to host a drop-in battle "
+    hook_names[patch.DROPIN_PATCHES[3][0]] = ("Drop-in off: starting to host a drop-in battle "
                                               "(CampaignUI.PlayDropInBattle) returns 0, not started")
     for site, _, _, orig_id, name in patch.STAT_HOOKS:
         hook_names[site] = (f"Stat hook, land unit stats builder: a `call` now goes to a stat routine "
@@ -134,7 +137,8 @@ What it does, in words:
   for a unit type (see the table below).
 * **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
   modified game file it could get the player's Steam account banned (Valve Anti-Cheat). Invitations
-  to join someone else's battle are never shown, and hosting one never starts.
+  to join someone else's battle are never shown, and battles are never offered to other players
+  (the game's drop-in setting is treated as off; hosting is refused as a backstop).
 
 The stat bonuses:
 

@@ -104,9 +104,15 @@ UNIT_RECORD_BONUS_COUNT = 0x0D
 #     candidate found" (0x11153f10, a virtual in the table at 0x11715364) only tells the UI, which
 #     then shows the "Drop-in battle available" panel. It now returns before that. The patch starts
 #     after its first instruction, which holds a relocated address.
-#   * hosting (another player takes over the AI army): CampaignUI.PlayDropInBattle (0x11143680)
-#     calls 0x111242b0 (its only caller) to start matchmaking; it now returns 0 (not started).
+#   * hosting (another player takes over the AI army): the campaign's "drop-in battles" flag
+#     ([obj+0x50]) is computed at 0x111860a8 as "not multiplayer, and the allow_drop_in_battles
+#     preference (id 0x67, on by default)"; with it on, the first battle tried to host and was
+#     cancelled. It is now always computed as off, and its setter (0x11189000, virtual; also writes
+#     the preference) always stores off. As a backstop, CampaignUI.PlayDropInBattle (0x11143680) calls
+#     0x111242b0 (its only caller) to start matchmaking; that now returns 0 (not started).
 DROPIN_PATCHES = [
+    (0x111860BD, bytes.fromhex("b001"), bytes.fromhex("30c0")),               # mov al,1 -> xor al,al
+    (0x11189001, bytes.fromhex("8a5c2408"), bytes.fromhex("31db9090")),       # mov bl,[esp+8] -> xor ebx,ebx
     (0x11153F16, bytes.fromhex("83ec246a00"), bytes.fromhex("31c0c20400")),   # xor eax,eax / ret 4
     (0x111242B0, bytes.fromhex("568bf18b86"), bytes.fromhex("31c0c20800")),   # xor eax,eax / ret 8
 ]
