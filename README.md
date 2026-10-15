@@ -22,7 +22,7 @@ basic stats (melee attack and defence, armour, morale, accuracy), Scare Enemies 
 
 | Pick a unit type... | ...and buy its upgrades |
 |---|---|
-| ![The Veterans list: every unit type you can recruit, by category](docs/images/unit-list-sengoku.png) | ![Yari Ashigaru's upgrade tree: stats, Scare Enemies and abilities such as War Cry, Rally and Banzai](docs/images/yari-ashigaru-upgrades.png) |
+| ![The Veterans list: every unit type you can recruit, by category](docs/images/unit-list-sengoku.png) | ![Yari Ashigaru's upgrades: stats such as Speed, Charge and Bonus vs Cavalry, traits such as Camouflage and Guerrilla Deployment, and abilities such as War Cry, Rally and Banzai](docs/images/yari-ashigaru-upgrades.png) |
 
 > Looking for the version on the Steam Workshop? That's [Veteran Upgrades](https://github.com/keanfreeman/shogun2-veteran-upgrades),
 > which needs no patch and works in a different way. Don't enable both at once.
