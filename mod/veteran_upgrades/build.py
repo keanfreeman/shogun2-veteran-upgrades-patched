@@ -245,10 +245,15 @@ def family_portrait(base_key, square):
     return None
 
 
-ABIL_JUNC, ABILITIES, ICON_FILES = [], {}, set()
+ABIL_JUNC, ABILITIES, ICON_FILES, BUTTON_FILES = [], {}, set(), set()
 
 
 def ability_icon(ab):
+    """The ability's 51x51 battle button (sharp in the 48-pixel skill slot), else its 22x22 button icon
+    (blurry when scaled up), else a stat icon."""
+    button = f"button_{ab}_unselected.tga"
+    if button in BUTTON_FILES:
+        return f"data/ui/battle ui/buttons/{button}"
     name = f"{ab}_icon.tga"
     return f"data/ui/battle ui/button icons/{name}" if name in ICON_FILES else STAT_ICON_PATH
 
@@ -330,7 +335,7 @@ UNITS_CLASS = {}
 
 
 def build_catalog(camp):
-    global ABIL_JUNC, ABILITIES, ICON_FILES
+    global ABIL_JUNC, ABILITIES, ICON_FILES, BUTTON_FILES
     from tools_packread import read_index
     ABIL_JUNC = load("unit_to_unit_abilities_junctions_tables")
     ABILITIES = {r["key"]: r for r in load("unit_abilities_tables")}
@@ -344,6 +349,7 @@ def build_catalog(camp):
                                   if r["bonus_value_id"] == "scares_men")
     enablers = campaign_enablers(camp)
     ICON_FILES = {n.lower().split("\\")[-1] for n, _, _ in read_index(DATA) if n.lower().startswith("ui\\battle ui\\button icons\\")}
+    BUTTON_FILES = {n.lower().split("\\")[-1] for n, _, _ in read_index(DATA) if n.lower().startswith("ui\\battle ui\\buttons\\")}
     available = icon_files()
     square = portraits()
     units = {r["key"]: r for r in load("units_tables")}
