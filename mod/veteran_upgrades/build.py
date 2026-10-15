@@ -104,11 +104,13 @@ MAX_PAGES = 2   # the upgrade panel pages through a unit type's lines (vu.lua pa
 # Upgrades EVERY unit type gets, whether or not its multiplayer tree has them (from the MoSS edition):
 #   (bonus_value_id, label, icon, step per level or None = median of the trees that have it, missile units only)
 UNIVERSAL_STATS = [
-    ("melee_attack_mod", "Melee Attack", "skill_melee_attack", None, False),
-    ("melee_defence_mod", "Melee Defence", "skill_melee_defence", None, False),
-    ("armour_mod", "Armour", "skill_armour", None, False),
-    ("morale", "Morale", "skill_morale", None, False),
-    ("accuracy_mod", "Accuracy", "skill_accuracy", None, True),
+    # Fixed steps for every unit type (the MP trees' steps of 1-6 made similar units pay very different
+    # amounts for the same stat; review 2026-10-14).
+    ("melee_attack_mod", "Melee Attack", "skill_melee_attack", 1.0, False),
+    ("melee_defence_mod", "Melee Defence", "skill_melee_defence", 1.0, False),
+    ("armour_mod", "Armour", "skill_armour", 1.0, False),
+    ("morale", "Morale", "skill_morale", 1.0, False),
+    ("accuracy_mod", "Accuracy", "skill_accuracy", 3.0, True),
     # Patch v4 stats (the game applies these per unit type only with the patch). Steps from vanilla
     # values: charge +1..10 (skills, retainers), battle speed +5..15% (techs, skills), reload +5..10%,
     # ammunition +50% (techs); range is metres added to the unit's range (Increased Range: +25).
@@ -120,7 +122,7 @@ UNIVERSAL_STATS = [
     # +2 per level, +20 at 10 (Yari Ashigaru have 20, MP trees +3..+15). Foot units only (below).
     ("bonus_vs_cavalry", "Bonus vs Cavalry", "skill_bonus_vs_cavalry", 2.0, False),
 ]
-FOOT_ONLY = {"bonus_vs_cavalry"}
+MELEE_ROLE_ONLY = {"bonus_vs_cavalry"}   # foot units that fight in melee (melee_role below)
 PATCH_STATS = {"charge_bonus", "mod_land_movement_battle", "reload", "ammo_mod", "range_mod", "bonus_vs_cavalry",
                "general_aoe_mod"}   # need patch v4 (general_aoe_mod here: the attribute bits 21-23)
 NOT_FOR_ARTILLERY = {"melee_attack_mod", "melee_defence_mod", "charge_bonus"}   # crews aren't meant to fight (unless their tree says so)
@@ -170,16 +172,16 @@ PRICE_K = 16
 STAT_FIELD = {"melee_attack_mod": "melee_attack", "melee_defence_mod": "melee_defence", "morale": "morale",
               "accuracy_mod": "core_marksmanship", "armour_mod": "armour", "charge_bonus": "charge_bonus",
               "bonus_vs_cavalry": "melee_bonus_vs_cavalry"}
-PERCENT_SPREAD = {"reload": 100.0,   # percent (or metre) bonuses: a pick's share of this much
-                  # priced by value: +20% speed or +50 m range (a 150 m bow reaching 200 m, like extreme-range
-                  # arrows) at 10 picks are strong; extra ammunition matters less
-                  "ammo_mod": 300.0, "mod_land_movement_battle": 30.0, "range_mod": 75.0}
+PERCENT_SPREAD = {"reload": 63.0,   # percent (or metre) bonuses: a pick's share of this much
+                  # priced by value (about 100 points to max range, 70 speed, 70 reload; review 2026-10-14):
+                  # permanent +50 m range or +20% speed are strong; extra ammunition matters less
+                  "ammo_mod": 300.0, "mod_land_movement_battle": 25.0, "range_mod": 44.0}
 # How a stat's value reads: (unit after the number in tooltips, effect description text)
 STAT_UNIT = {"reload": ("%", "%+n%% reload skill"), "ammo_mod": ("%", "%+n%% ammunition"),
              "mod_land_movement_battle": ("%", "%+n%% battle speed"), "range_mod": (" m", "%+n m range"),
              "charge_bonus": ("", "%+n charge bonus"),
              "bonus_vs_cavalry": ("", "%+n bonus vs cavalry")}
-PASSIVE_COST = 4   # passive unlocks such as Scare Enemies
+PASSIVE_COST = 6   # passive unlocks such as Scare Enemies
 STAT_MAX_LEVEL = 10   # each stat line can be bought this many times...
 STAT_MAX_FACTOR = 2   # ...and buying it that often gives about twice the multiplayer maximum
 # ...and pick n costs n points (1+2+...+10 = 55 to max one stat), so stacking one stat gets expensive.
@@ -489,9 +491,11 @@ def build_catalog(camp):
 
 
 def stat_spreads(catalog):
-    """{bonus: (min, mean, max)} of each stat across the base units of every family."""
+    """{bonus: (min, mean, max)} of each stat across every land unit of the game (all campaigns), so the
+    same upgrade costs the same in every campaign."""
     stats = {r["key"]: r for r in load("unit_stats_land_tables")}
-    keys = [u for f in catalog for u in f["units"] if u in stats]
+    units = {r["key"] for r in load("units_tables")}
+    keys = [k for k in stats if k in units and not SKIP.search(k) and not EXCLUDE.search(k) and not k.endswith("_MP")]
     out = {}
     for bonus, field in STAT_FIELD.items():
         vals = [stats[k][field] for k in keys if not (field == "core_marksmanship" and stats[k][field] == 0)]
@@ -543,18 +547,15 @@ def add_universal_lines(lines, keys, available):
     for bonus, label, icon, step, missile_only in UNIVERSAL_STATS:
         if missile_only and not has_missiles(keys):
             continue
-        if bonus in FOOT_ONLY and any(unit_kind(k)[2] for k in keys):
+        if bonus in MELEE_ROLE_ONLY and not melee_role(keys):
             continue
         key = "stat_" + bonus
         if artillery and bonus in NOT_FOR_ARTILLERY and key not in lines:
             continue
-        if key in lines:
-            lines[key]["from_tree"] = True
-            out[key] = lines[key]
-        else:
-            out[key] = {"key": key, "label": label, "bonus": bonus, "advanced": False, "kind": "stat",
-                        "icon": f"data/ui/frontend ui/skills/{icon if icon in available else 'skill_morale'}.tga",
-                        "levels": None if step is None else [step * i for i in range(1, STAT_MAX_LEVEL + 1)]}
+        # The unit's own tree line for this stat (if any) is replaced: one fixed step for everyone.
+        out[key] = {"key": key, "label": label, "bonus": bonus, "advanced": False, "kind": "stat",
+                    "icon": f"data/ui/frontend ui/skills/{icon if icon in available else 'skill_morale'}.tga",
+                    "levels": None if step is None else [step * i for i in range(1, STAT_MAX_LEVEL + 1)]}
     for key, line in lines.items():
         if key not in out and line.get("kind", "stat") == "stat":
             out[key] = line
@@ -570,6 +571,15 @@ def add_universal_lines(lines, keys, available):
         if key not in out:
             out[key] = line
     return out
+
+
+def melee_role(keys):
+    """Bonus vs Cavalry: foot units, not artillery, that fight in melee (no missile weapon) or already
+    have a bonus vs cavalry."""
+    if is_artillery(keys) or any(unit_kind(k)[2] for k in keys):
+        return False
+    return all(not (STATS.get(k) or {}).get("primary_missile_weapon") or (STATS.get(k) or {}).get("melee_bonus_vs_cavalry", 0) > 0
+               for k in keys)
 
 
 def lacks_any_hide(keys):
@@ -590,16 +600,16 @@ def can_take_fatigue(keys):
 # tooltip, effect text, who can take it). The general_aoe_mod ones are bits patch v4 turns into the
 # unit's flags; fatigue_resistance is a vanilla unit-type bonus (sets the fatigue_resistant flag).
 ATTRIBUTE_LINES = [
-    ("passive_snipe", "Fire While Hidden", "general_aoe_mod", 1 << SNIPE_BIT, 5, "skill_snipe", "ranged",
+    ("passive_snipe", "Fire While Hidden", "general_aoe_mod", 1 << SNIPE_BIT, 8, "skill_snipe", "ranged",
      "This unit stays hidden while it shoots, as long as it isn't spotted.", "Can fire while hidden",
      lambda keys: can_take_snipe(keys)),
-    ("passive_camo", "Camouflage", "general_aoe_mod", 1 << CAMO_BIT, 4, "skill_spot_distance", "physical",
+    ("passive_camo", "Camouflage", "general_aoe_mod", 1 << CAMO_BIT, 6, "skill_spot_distance", "physical",
      "This unit can hide in woodland, scrub, long grass and buildings.", "Can hide in every terrain",
      lambda keys: lacks_any_hide(keys)),
-    ("passive_guerrilla", "Guerrilla Deployment", "general_aoe_mod", 1 << GUERRILLA_BIT, 4, "skill_guerilla_deployment",
+    ("passive_guerrilla", "Guerrilla Deployment", "general_aoe_mod", 1 << GUERRILLA_BIT, 10, "skill_guerilla_deployment",
      "leadership", "This unit can deploy anywhere on the battlefield that the enemy can't see.", "Guerrilla deployment",
      lambda keys: can_take_guerrilla(keys)),
-    ("passive_fatigue", "Fatigue Resistant", "fatigue_resistance", 1, 5, "skill_stamina", "physical",
+    ("passive_fatigue", "Fatigue Resistant", "fatigue_resistance", 1, 6, "skill_stamina", "physical",
      "This unit tires more slowly.", "Fatigue resistant", lambda keys: can_take_fatigue(keys)),
 ]
 
