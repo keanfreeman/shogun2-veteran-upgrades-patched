@@ -53,6 +53,8 @@ check(charge and string.find(charge.tip or "", "charge bonus", 1, true), "Charge
 MOCK.click(charge)
 check(MOCK.line("Bonus vs Cavalry") ~= nil, "Bonus vs Cavalry line for foot units")
 check(MOCK.line("Camouflage") ~= nil and MOCK.line("Guerrilla Deployment") ~= nil, "Camouflage and Guerrilla Deployment lines")
+local camo_n, armour_n = MOCK.line("Camouflage"), MOCK.line("Armour")
+check(camo_n and armour_n and camo_n.x == armour_n.x, "attribute lines centred in their column like the others")
 local spd = MOCK.line("Speed")
 check(spd and string.find(spd.tip or "", "%", 1, true), "Speed tooltip shows a percentage")
 local spent = before - tonumber(pool_text())

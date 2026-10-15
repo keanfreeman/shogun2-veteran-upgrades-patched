@@ -369,7 +369,8 @@ local function vu_layout(fam)
 	local col_stats, stat_seen = {}, {}
 	for _, line in ipairs(fam.lines) do if vu_on_page(line) then
 		-- Lines sharing a column and a row sit side by side (build.py gives each line its own row).
-		local col, slot = line.column, line.kind == "ability" and line.key or line.bonus
+		-- One slot per line: attribute lines share a bonus (general_aoe_mod), so key by the line itself.
+		local col, slot = line.column, line.key
 		col_stats[col] = col_stats[col] or {}
 		local tag = col .. ":" .. line.row
 		col_stats[tag] = col_stats[tag] or {}
@@ -406,7 +407,7 @@ local function vu_layout(fam)
 		end)
 		local nw = 0
 		pcall(function() nw = UIComponent(nd.addr):Width() end)
-		local slot = line.kind == "ability" and line.key or line.bonus
+		local slot = line.key
 		local stats, k = col_stats[col .. ":" .. line.row], 1
 		for j, b in ipairs(stats) do if b == slot then k = j end end
 		local spacing = nw + 40
