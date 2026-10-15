@@ -18,7 +18,7 @@ RUNS = [  # (campaign, scenario, player clan, game DLL patched?)
     ("boshin", "smoke.lua", "bos_satsuma", True),
 ]
 SIGNATURE_OFFSET = 0x15a0190   # detect.lua / patch.py show
-SIGNATURE = b"VU_ABILITY_PATCH 3\0"
+SIGNATURE = b"VU_ABILITY_PATCH 4\0"
 
 
 def fake_dll(patched):

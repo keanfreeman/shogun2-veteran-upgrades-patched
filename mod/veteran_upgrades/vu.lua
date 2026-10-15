@@ -91,7 +91,7 @@ local CampaignUI = VU_DEBUG and setmetatable({}, { __index = function(_, m)
 end }) or CampaignUI
 
 local function addr_key(addr) return tostring(addr) end
-local VU_PATCH_MIN = 3   -- clone keys "vuNN_..." need patch version 3
+local VU_PATCH_MIN = 4   -- clone keys "vuNN_..." need patch v3; the per-unit-type stats (charge, speed, reload, ammunition, range) v4
 local VU_PATCH = ability_patch_version()   -- nil when the game DLL isn't patched
 if VU_PATCH and VU_PATCH < VU_PATCH_MIN then VU_PATCH = nil end
 local VU_RETRAIN_ICON = "data/ui/frontend ui/skills/skill_morale.tga"
@@ -153,7 +153,7 @@ local function vu_pending_buy(line)
 	if not nxt then vu_log("buy:", line.key, "already maxed") return end
 	local lock = vu_locked_by(p.fam, line, p.levels)
 	if lock then vu_log("buy:", line.key, "locked until", lock.key, "is maxed") return end
-	if line.kind == "ability" and not VU_PATCH then vu_log("buy:", line.key, "needs the ability patch") return end
+	if line.needs_patch and not VU_PATCH then vu_log("buy:", line.key, "needs the game patch") return end
 	if p.points < nxt.cost then vu_log("buy:", line.key, "needs", nxt.cost, "have", p.points) return end
 	p.levels[line.key] = owned + 1
 	p.points = p.points - nxt.cost
@@ -444,8 +444,9 @@ local function vu_refresh_panel()
 			local tip
 			if lock then
 				tip = string.format("%s\nRequires %s at %d/%d first.", line.label, lock.label, #lock.levels, #lock.levels)
-			elseif line.kind == "ability" and not VU_PATCH then
-				tip = string.format("Ability: %s\n%s\nNeeds the game patch that comes with Veteran Upgrades: Patched Edition (patch version 3 or later), which isn't installed in this game.", line.label, line.desc)
+			elseif line.needs_patch and not VU_PATCH then
+				tip = string.format("%s%s\n%s\nNeeds the game patch that comes with " .. VU_TITLE .. " (patch version " .. VU_PATCH_MIN .. " or later), which isn't installed in this game.",
+					line.kind == "ability" and "Ability: " or "", line.label, line.kind == "ability" and line.desc or ("Raises " .. line.stat .. "."))
 			elseif line.kind == "ability" then
 				tip = string.format("Ability: %s\n%s\n%s\nApplies to every %s you have, including units already in your armies.%s", line.label, line.desc,
 					owned > 0 and "Unlocked for every " .. fam.name .. "." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points),
@@ -454,10 +455,10 @@ local function vu_refresh_panel()
 				tip = string.format("%s\nThis unit frightens nearby enemies, lowering their morale.\n%s", line.label,
 					owned > 0 and "Unlocked." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points))
 			elseif nxt then
-				tip = string.format("%s %s\n+%g %s for %s.\nCost: %d point%s (you have %d).",
-					line.label, owned + 1, nxt.value, line.stat, fam.name, nxt.cost, nxt.cost == 1 and "" or "s", p.points)
+				tip = string.format("%s %s\n+%g%s %s for %s.\nCost: %d point%s (you have %d).",
+					line.label, owned + 1, nxt.value, line.unit or "", line.stat, fam.name, nxt.cost, nxt.cost == 1 and "" or "s", p.points)
 			else
-				tip = string.format("%s (max)\n+%g %s for %s.", line.label, line.levels[owned].value, line.stat, fam.name)
+				tip = string.format("%s (max)\n+%g%s %s for %s.", line.label, line.levels[owned].value, line.unit or "", line.stat, fam.name)
 			end
 			for _, a in ipairs({ nd.addr, nd.icon_addr, nd.name_addr }) do
 				pcall(function() UIComponent(a):SetTooltipText(tip, true) end)
@@ -466,7 +467,7 @@ local function vu_refresh_panel()
 			local state
 			if owned > 0 then state = "down"                                 -- owned: full colour
 			elseif lock then state = "inactive"                               -- prerequisite missing
-			elseif nxt and p.points >= nxt.cost and (line.kind ~= "ability" or VU_PATCH) then state = "active"   -- buyable
+			elseif nxt and p.points >= nxt.cost and (not line.needs_patch or VU_PATCH) then state = "active"   -- buyable
 			else state = "inactive" end                                       -- can't afford
 			pcall(function() UIComponent(nd.addr):SetState(state) end)
 			-- The greyscale look lives on the icon element itself, so set its shader directly.
@@ -514,7 +515,7 @@ local function vu_buyable(fam)
 	for _, l in ipairs(fam.lines) do lv[l.key] = vu_level(fam.id, l.key) end
 	for _, l in ipairs(fam.lines) do
 		local nxt = l.levels[lv[l.key] + 1]
-		if nxt and pts >= nxt.cost and not vu_locked_by(fam, l, lv) and (l.kind ~= "ability" or VU_PATCH) then return true end
+		if nxt and pts >= nxt.cost and not vu_locked_by(fam, l, lv) and (not l.needs_patch or VU_PATCH) then return true end
 	end
 	return false
 end
@@ -1514,7 +1515,7 @@ vu_ai_spend = function(faction)
 				local owned = 0
 				for _, l in pairs(lv) do owned = owned + l end
 				for _, line in ipairs(fam.lines) do
-					local nxt = (line.kind ~= "ability" or VU_PATCH) and line.levels[(lv[line.key] or 0) + 1]
+					local nxt = (not line.needs_patch or VU_PATCH) and line.levels[(lv[line.key] or 0) + 1]
 					if nxt and nxt.cost <= clan.pool and (not best_cost or nxt.cost < best_cost
 						or (nxt.cost == best_cost and owned < best_owned)) then
 						best, best_fam, best_cost, best_owned = line, fam, nxt.cost, owned

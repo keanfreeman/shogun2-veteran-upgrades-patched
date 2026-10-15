@@ -107,11 +107,21 @@ UNIVERSAL_STATS = [
     ("armour_mod", "Armour", "skill_armour", None, False),
     ("morale", "Morale", "skill_morale", None, False),
     ("accuracy_mod", "Accuracy", "skill_accuracy", None, True),
+    # Patch v4 stats (the game applies these per unit type only with the patch). Steps from vanilla
+    # values: charge +1..10 (skills, retainers), battle speed +5..15% (techs, skills), reload +5..10%,
+    # ammunition +50% (techs); range is metres added to the unit's range (Increased Range: +25).
+    ("charge_bonus", "Charge", "skill_charge", 2.0, False),
+    ("mod_land_movement_battle", "Speed", "skill_speed", 2.0, False),
+    ("reload", "Reload", "skill_reload", 5.0, True),
+    ("ammo_mod", "Ammunition", "skill_ammo_quantity", 10.0, True),
+    ("range_mod", "Range", "skill_range", 5.0, True),
 ]
-NOT_FOR_ARTILLERY = {"melee_attack_mod", "melee_defence_mod"}   # crews aren't meant to fight (unless their tree says so)
+PATCH_STATS = {"charge_bonus", "mod_land_movement_battle", "reload", "ammo_mod", "range_mod"}   # need patch v4
+NOT_FOR_ARTILLERY = {"melee_attack_mod", "melee_defence_mod", "charge_bonus"}   # crews aren't meant to fight (unless their tree says so)
 # Panel column (popup heading container) per bonus / ability.
 COLUMN = {"morale": "leadership", "accuracy_mod": "ranged", "reload": "ranged", "armour_mod": "physical",
-          "melee_attack_mod": "melee", "melee_defence_mod": "melee", "scares_men": "leadership"}
+          "melee_attack_mod": "melee", "melee_defence_mod": "melee", "scares_men": "leadership",
+          "charge_bonus": "melee", "mod_land_movement_battle": "physical", "ammo_mod": "ranged", "range_mod": "ranged"}
 ABILITY_COLUMN = {"rally": "leadership", "inspire_unit": "leadership", "stand_firm": "leadership",
                   "we_stand_and_fight": "leadership", "ganbatte": "leadership",
                   "warcry": "melee", "banzai": "melee", "heroic_assault": "melee", "rapid_advance": "melee",
@@ -151,8 +161,15 @@ ABILITY_COSTS = {
 # all unit types the mod covers; pick n costs max(1, round(PRICE_K * share * n)).
 PRICE_K = 16
 STAT_FIELD = {"melee_attack_mod": "melee_attack", "melee_defence_mod": "melee_defence", "morale": "morale",
-              "accuracy_mod": "core_marksmanship", "armour_mod": "armour"}
-PERCENT_SPREAD = {"reload": 100.0}   # percent bonuses: share of 100%
+              "accuracy_mod": "core_marksmanship", "armour_mod": "armour", "charge_bonus": "charge_bonus"}
+PERCENT_SPREAD = {"reload": 100.0,   # percent (or metre) bonuses: a pick's share of this much
+                  # priced by value: +20% speed or +50 m range (a 150 m bow reaching 200 m, like extreme-range
+                  # arrows) at 10 picks are strong; extra ammunition matters less
+                  "ammo_mod": 300.0, "mod_land_movement_battle": 30.0, "range_mod": 75.0}
+# How a stat's value reads: (unit after the number in tooltips, effect description text)
+STAT_UNIT = {"reload": ("%", "%+n%% reload skill"), "ammo_mod": ("%", "%+n%% ammunition"),
+             "mod_land_movement_battle": ("%", "%+n%% battle speed"), "range_mod": (" m", "%+n m range"),
+             "charge_bonus": ("", "%+n charge bonus")}
 PASSIVE_COST = 4   # passive unlocks such as Scare Enemies
 STAT_MAX_LEVEL = 10   # each stat line can be bought this many times...
 STAT_MAX_FACTOR = 2   # ...and buying it that often gives about twice the multiplayer maximum
@@ -160,11 +177,12 @@ STAT_MAX_FACTOR = 2   # ...and buying it that often gives about twice the multip
 ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
 # Fallback icon per bonus when the MP skill's own icon file doesn't exist.
 STAT_ICON = {"reload": "skill_reload", "accuracy_mod": "skill_accuracy", "melee_attack_mod": "skill_melee_attack", "melee_defence_mod": "skill_melee_defence",
-             "armour_mod": "skill_armour", "morale": "skill_morale"}
+             "armour_mod": "skill_armour", "morale": "skill_morale", "charge_bonus": "skill_charge",
+             "mod_land_movement_battle": "skill_speed", "ammo_mod": "skill_ammo_quantity", "range_mod": "skill_range"}
 ICON = "data/ui/campaign ui/pips/effect_admiral.tga"
 START_POINTS = 0  # points come from battles (vu.lua: VU_OnUnitCompletedBattle)
 TITLE = "Veteran Upgrades: Patched Edition"   # named apart from the Workshop mod, so nobody mixes them up
-VERSION = "1.0.0"   # based on Veteran Upgrades 1.1.0
+VERSION = "2.0.0"   # based on Veteran Upgrades 1.1.0; 2.0 needs patch v4
 PACK_NAME = "veteran_upgrades_patched.pack"
 DEBUG = os.environ.get("VU_DEBUG") == "1"   # debug build: logs the panel's UI tree + tooltips (tools/vu_ui_audit.py)
 
@@ -567,7 +585,8 @@ def build(catalog):
                     seen_effects.add(ek)
                     eff_rows.append({"effect": ek, "icon": ICON, "priority": 900})
                     junc_rows.append({"bonus_value_id": line["bonus"], "effect": ek, "unit_record_key": u})
-                    eff_loc.append(("effects_description_" + ek, f"%+n {BONUS_LABEL.get(line['bonus'], line['label'])} for {disp} (veteran upgrades)"))
+                    text = STAT_UNIT[line["bonus"]][1] if line["bonus"] in STAT_UNIT else f"%+n {BONUS_LABEL.get(line['bonus'], line['label'])}"
+                    eff_loc.append(("effects_description_" + ek, f"{text} for {disp} (veteran upgrades)"))
             for lvl, value in enumerate(line["levels"], 1):
                 bk = bundle_key(fam["id"], line, lvl)
                 title = f"Veterans: {disp} {line['label']}" + (f" {ROMAN[lvl]}" if len(line["levels"]) > 1 else "")
@@ -658,6 +677,8 @@ def clone_tables(catalog):
 
 BONUS_LABEL = {v[0]: v[1] for v in BONUS.values()}
 BONUS_LABEL["scares_men"] = "Scare Enemies"
+BONUS_LABEL.update({"charge_bonus": "charge bonus", "mod_land_movement_battle": "battle speed", "reload": "reload skill",
+                    "ammo_mod": "ammunition", "range_mod": "range"})
 STAT_ICON_PATH = "data/ui/frontend ui/skills/skill_melee_attack.tga"
 
 
@@ -816,6 +837,8 @@ def lua_data(catalog, camp):
             ability = line["kind"] == "ability"
             lines.append({"key": line["key"], "label": line["label"], "advanced": line["advanced"], "icon": line["icon"],
                           "bonus": line["bonus"], "stat": BONUS_LABEL.get(line["bonus"], line["label"]),
+                          "unit": STAT_UNIT.get(line["bonus"], ("",))[0],
+                          "needs_patch": ability or line["bonus"] in PATCH_STATS,
                           "kind": line["kind"], "column": line["column"], "row": line["row"],
                           "desc": line.get("desc", ""), "gated": line.get("gated", False), "requires": line.get("requires", ""),
                           "levels": [{"bundle": bundle_key(fam["id"], line, i), "value": v,
