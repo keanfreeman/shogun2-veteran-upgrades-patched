@@ -84,6 +84,9 @@ def patch_doc():
                                               "available\") returns before telling the UI")
     hook_names[patch.DROPIN_PATCHES[3][0]] = ("Drop-in off: starting to host a drop-in battle "
                                               "(CampaignUI.PlayDropInBattle) returns 0, not started")
+    hook_names[patch.RANGE_VA] = ("Range routine, in unused int3 padding: adds the class + unit_record range "
+                                  "bonus to the unit's additive range field (the vanilla code multiplied it, "
+                                  "and it starts at 0)")
     for site, _, _, orig_id, name in patch.STAT_HOOKS:
         hook_names[site] = (f"Stat hook, land unit stats builder: a `call` now goes to a stat routine "
                             f"(`{name}`, unit_record id {orig_id + patch.STAT_ID_SHIFT:#x})")
@@ -105,7 +108,7 @@ def patch_doc():
     stats = "\n".join(f"| `{name}` | {what} |" for name, what in [
         ("charge_bonus", "charge bonus, added to the unit class's"),
         ("reload", "reload skill %, added to the unit class's"),
-        ("range_mod", "missile range %, added to the unit class's"),
+        ("range_mod", "missile range, added to the unit's range bonus (the field the Increased Range ability raises)"),
         ("mod_land_movement_battle", "battle speed %, added to the unit category's"),
         ("ammo_mod", "ammunition %, added to the unit class's")])
     places = len(patch.hooks()) + 2
@@ -132,7 +135,8 @@ What it does, in words:
   `general_aoe_mod` bonus, and if bit NN is set (and any research the real ability needs is done) it
   adds the real ability instead of skipping. Hook 2 restores the loop's position afterwards.
 * **Stats.** The game adds clan bonuses to a land unit's charge, reload, range, speed and ammunition
-  only per unit class or category. Each stat hook keeps that lookup and also adds the same kind of
+  only per unit class or category (and its class range bonus never worked: it multiplied a field that
+  starts at 0). Each stat hook keeps that lookup and also adds the same kind of
   bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
   for a unit type (see the table below).
 * **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a

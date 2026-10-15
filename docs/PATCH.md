@@ -5,7 +5,7 @@ The player patchers ([player/](../player/)) write exactly these bytes; `tools/ve
 re-assembles them from the source below and checks that, on every push (GitHub Actions).
 
 The patch is for `empire.retail.dll` of the Steam Windows build (SHA-256 `022fae2e2da92b59b8b1b8ee52887003c624e3c8eca060b209f5d792a7f874f5`).
-It changes 446 bytes in 14 places and nothing else:
+It changes 478 bytes in 15 places and nothing else:
 
 | What | File offset |
 |---|---|
@@ -17,6 +17,7 @@ It changes 446 bytes in 14 places and nothing else:
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`range_mod`, unit_record id 0x17) | `0x151c14` |
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`mod_land_movement_battle`, unit_record id 0x19) | `0x151c46` |
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`ammo_mod`, unit_record id 0x18) | `0x151c78` |
+| Range routine, in unused int3 padding: adds the class + unit_record range bonus to the unit's additive range field (the vanilla code multiplied it, and it starts at 0) | `0xb4f20` |
 | Drop-in off: the campaign's drop-in battles flag is always computed as off (the preference defaults to on) | `0x11854bd` |
 | Drop-in off: the drop-in flag's setter always stores off | `0x1188401` |
 | Drop-in off: the handler for a drop-in invitation ("Drop-in battle available") returns before telling the UI | `0x1153316` |
@@ -32,7 +33,8 @@ What it does, in words:
   `general_aoe_mod` bonus, and if bit NN is set (and any research the real ability needs is done) it
   adds the real ability instead of skipping. Hook 2 restores the loop's position afterwards.
 * **Stats.** The game adds clan bonuses to a land unit's charge, reload, range, speed and ammunition
-  only per unit class or category. Each stat hook keeps that lookup and also adds the same kind of
+  only per unit class or category (and its class range bonus never worked: it multiplied a field that
+  starts at 0). Each stat hook keeps that lookup and also adds the same kind of
   bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
   for a unit type (see the table below).
 * **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
@@ -46,7 +48,7 @@ The stat bonuses:
 |---|---|
 | `charge_bonus` | charge bonus, added to the unit class's |
 | `reload` | reload skill %, added to the unit class's |
-| `range_mod` | missile range %, added to the unit class's |
+| `range_mod` | missile range, added to the unit's range bonus (the field the Increased Range ability raises) |
 | `mod_land_movement_battle` | battle speed %, added to the unit category's |
 | `ammo_mod` | ammunition %, added to the unit class's |
 
@@ -84,7 +86,7 @@ Patched:
 Original at 0x10152814 (file offset 0x151c14):
 10152814  e8a7caa700       call 0x10bcf2c0
 Patched:
-10152814  e863e54401       call 0x115a0d7c
+10152814  e80733f6ff       call 0x100b5b20
 
 Original at 0x10152846 (file offset 0x151c46):
 10152846  e855caa700       call 0x10bcf2a0
@@ -95,6 +97,48 @@ Original at 0x10152878 (file offset 0x151c78):
 10152878  e843caa700       call 0x10bcf2c0
 Patched:
 10152878  e8ffe44401       call 0x115a0d7c
+
+Original at 0x100b5b20 (file offset 0xb4f20):
+100b5b20  cc               int3
+100b5b21  cc               int3
+100b5b22  cc               int3
+100b5b23  cc               int3
+100b5b24  cc               int3
+100b5b25  cc               int3
+100b5b26  cc               int3
+100b5b27  cc               int3
+100b5b28  cc               int3
+100b5b29  cc               int3
+100b5b2a  cc               int3
+100b5b2b  cc               int3
+100b5b2c  cc               int3
+100b5b2d  cc               int3
+100b5b2e  cc               int3
+100b5b2f  cc               int3
+100b5b30  cc               int3
+100b5b31  cc               int3
+100b5b32  cc               int3
+100b5b33  cc               int3
+100b5b34  cc               int3
+100b5b35  cc               int3
+100b5b36  cc               int3
+100b5b37  cc               int3
+100b5b38  cc               int3
+100b5b39  cc               int3
+100b5b3a  cc               int3
+100b5b3b  cc               int3
+100b5b3c  cc               int3
+100b5b3d  cc               int3
+100b5b3e  cc               int3
+100b5b3f  cc               int3
+Patched:
+100b5b20  ff742408         push dword ptr [esp + 8]
+100b5b24  ff742408         push dword ptr [esp + 8]
+100b5b28  e84fb24e01       call 0x115a0d7c
+100b5b2d  d88424c4000000   fadd dword ptr [esp + 0xc4]
+100b5b34  d99c24c4000000   fstp dword ptr [esp + 0xc4]
+100b5b3b  d9ee             fldz
+100b5b3d  c20800           ret 8
 
 Original at 0x111860bd (file offset 0x11854bd):
 111860bd  b001             mov al, 1

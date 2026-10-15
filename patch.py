@@ -81,11 +81,20 @@ STAT_ID_SHIFT = 0x10
 STAT_HOOKS = [
     (0x10152620, 0x10BCF440, "int", 0x0B, "charge_bonus"),               # class 11 -> local charge
     (0x1015270D, 0x10BCF440, "int", 0x04, "reload"),                     # class 4  -> reload skill %
-    (0x10152814, 0x10BCF2C0, "class_f", 0x07, "range_mod"),              # class 7  -> range %
+    (0x10152814, 0x10BCF2C0, "range", 0x07, "range_mod"),                # class 7  -> range bonus (added)
     (0x10152846, 0x10BCF2A0, "category_f", 0x09, "mod_land_movement_battle"),  # category 9 -> speed %
     (0x10152878, 0x10BCF2C0, "class_f", 0x08, "ammo_mod"),               # class 8  -> ammo %
 ]
 STAT_BONUSES = {name: orig_id + STAT_ID_SHIFT for _, _, _, orig_id, name in STAT_HOOKS}
+# Range: the builder multiplies the stats field +0x40 by (1 + class range_mod %), but that field is an
+# ADDITIVE range bonus that starts at 0 (battle unit +0x170 = stats +0x40, the battle unit holding the
+# stats at +0x130; the range_effect ability adds _kv special_ability_bonus_range_increase_max_range to
+# it), so the vanilla class bonus never did anything. The range routine adds class + unit_record bonus
+# to the field instead, and returns 0 so the builder's multiply keeps it. At the call, the field is
+# the builder's [esp+0xb8] (after the call returns), i.e. [esp+0xc4] at the routine's entry.
+RANGE_FIELD_AT_ENTRY = 0xC4
+RANGE_VA = 0x100B5B20          # in the 56 bytes of int3 padding at 0x100b5b18..0x100b5b4f
+RANGE_PAD_END = 0x100B5B50
 # The engine's own copies of those names (the unit_class/unit_category name tables point at them).
 NAME_VA = {"charge_bonus": 0x1164EA58, "reload": 0x1164EAD4, "range_mod": 0x1164EAEC,
            "mod_land_movement_battle": 0x1164EA68, "ammo_mod": 0x1164DD98}
@@ -257,6 +266,18 @@ stat_class_f:
 # are +4/+8/+0xc; the first two pushes for the lookup move the record to +0x10. After `pop ecx` and
 # `push eax` (the first result, or a slot for it) the id is at +0xc again.
 
+ASM_RANGE = f"""
+    push dword ptr [esp + 8]
+    push dword ptr [esp + 8]
+    call STAT_CLASS_F
+    fadd dword ptr [esp + {RANGE_FIELD_AT_ENTRY:#x}]
+    fstp dword ptr [esp + {RANGE_FIELD_AT_ENTRY:#x}]
+    fldz
+    ret 8
+"""
+# The two pushes repeat the routine's own arguments (class record, bonus id) for stat_class_f, which
+# returns class + unit_record bonus in st(0) and pops them.
+
 # Parser extension. Table entries: int32 (name VA - entry VA, so no relocation is needed under ASLR),
 # then the id byte; a zero int32 ends it. esi/edi are the parser's (callee-saved, pushed on entry).
 ASM_PARSE = f"""
@@ -305,7 +326,14 @@ def stat_labels():
     for kind in ("int", "category_f", "class_f"):
         prefix = ASM_STATS.split(f"stat_{kind}:")[0]
         labels[kind] = va + len(_asm(prefix, va)) if prefix.strip() else va
+    labels["range"] = RANGE_VA
     return labels
+
+
+def range_routine():
+    code = _asm(ASM_RANGE.replace("STAT_CLASS_F", hex(stat_labels()["class_f"])), RANGE_VA)
+    assert RANGE_VA + len(code) <= RANGE_PAD_END, f"range routine is {len(code):#x} bytes"
+    return code
 
 
 def parse_routine():
@@ -365,6 +393,8 @@ def hooks():
            (HOOK2_VA, HOOK2_ORIG, jmp_bytes(HOOK2_VA, CAVE_VA + CAVE2_OFFSET, len(HOOK2_ORIG)))]
     for site, target, kind, _, _ in STAT_HOOKS:
         out.append((site, call_bytes(site, target), call_bytes(site, labels[kind])))
+    code = range_routine()
+    out.append((RANGE_VA, b"\xcc" * len(code), code))
     out += DROPIN_PATCHES
     out.append((PARSE_HOOK_VA, PARSE_HOOK_ORIG,
                 jmp_bytes(PARSE_HOOK_VA, CAVE_VA + PARSE_OFFSET, len(PARSE_HOOK_ORIG))))
