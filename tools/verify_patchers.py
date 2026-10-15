@@ -77,6 +77,10 @@ def patch_doc():
                   patch.HOOK2_VA: "Hook 2, same loop: a 7-byte instruction pair now jumps to routine 2",
                   patch.PARSE_HOOK_VA: "Parser hook: the unit_record bonus-name parser's not-found exit "
                                        "jumps to the parser extension"}
+    hook_names[patch.DROPIN_PATCHES[0][0]] = ("Drop-in off: the handler for a drop-in invitation (\"Drop-in battle "
+                                              "available\") returns before telling the UI")
+    hook_names[patch.DROPIN_PATCHES[1][0]] = ("Drop-in off: starting to host a drop-in battle "
+                                              "(CampaignUI.PlayDropInBattle) returns 0, not started")
     for site, _, _, orig_id, name in patch.STAT_HOOKS:
         hook_names[site] = (f"Stat hook, land unit stats builder: a `call` now goes to a stat routine "
                             f"(`{name}`, unit_record id {orig_id + patch.STAT_ID_SHIFT:#x})")
@@ -127,7 +131,12 @@ What it does, in words:
 * **Stats.** The game adds clan bonuses to a land unit's charge, reload, range, speed and ammunition
   only per unit class or category. Each stat hook keeps that lookup and also adds the same kind of
   bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
-  for a unit type:
+  for a unit type (see the table below).
+* **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
+  modified game file it could get the player's Steam account banned (Valve Anti-Cheat). Invitations
+  to join someone else's battle are never shown, and hosting one never starts.
+
+The stat bonuses:
 
 | unit_record bonus | adds |
 |---|---|

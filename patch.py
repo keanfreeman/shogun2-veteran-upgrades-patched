@@ -97,6 +97,20 @@ PARSE_HOOK_ORIG = bytes.fromhex("5fb80d0000005ec3")
 NAME_MATCH_FN = 0x100EE2D0           # thiscall bool(UniString*, const char*): the parser's comparison
 UNIT_RECORD_BONUS_COUNT = 0x0D
 
+# v4: drop-in battles off. A drop-in battle is an online battle against another player, so with a
+# modified game file it risks a Valve Anti-Cheat ban. Both ways in are cut, whether or not the mod is
+# enabled (the mod also hides the buttons):
+#   * invitations to join someone else's battle: the multiplayer message handler for "drop-in match
+#     candidate found" (0x11153f10, a virtual in the table at 0x11715364) only tells the UI, which
+#     then shows the "Drop-in battle available" panel. It now returns before that. The patch starts
+#     after its first instruction, which holds a relocated address.
+#   * hosting (another player takes over the AI army): CampaignUI.PlayDropInBattle (0x11143680)
+#     calls 0x111242b0 (its only caller) to start matchmaking; it now returns 0 (not started).
+DROPIN_PATCHES = [
+    (0x11153F16, bytes.fromhex("83ec246a00"), bytes.fromhex("31c0c20400")),   # xor eax,eax / ret 4
+    (0x111242B0, bytes.fromhex("568bf18b86"), bytes.fromhex("31c0c20800")),   # xor eax,eax / ret 8
+]
+
 ASM = f"""
     test eax, eax
     jnz grant
@@ -345,6 +359,7 @@ def hooks():
            (HOOK2_VA, HOOK2_ORIG, jmp_bytes(HOOK2_VA, CAVE_VA + CAVE2_OFFSET, len(HOOK2_ORIG)))]
     for site, target, kind, _, _ in STAT_HOOKS:
         out.append((site, call_bytes(site, target), call_bytes(site, labels[kind])))
+    out += DROPIN_PATCHES
     out.append((PARSE_HOOK_VA, PARSE_HOOK_ORIG,
                 jmp_bytes(PARSE_HOOK_VA, CAVE_VA + PARSE_OFFSET, len(PARSE_HOOK_ORIG))))
     return out

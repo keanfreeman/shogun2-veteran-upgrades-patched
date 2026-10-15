@@ -5,7 +5,7 @@ The player patchers ([player/](../player/)) write exactly these bytes; `tools/ve
 re-assembles them from the source below and checks that, on every push (GitHub Actions).
 
 The patch is for `empire.retail.dll` of the Steam Windows build (SHA-256 `022fae2e2da92b59b8b1b8ee52887003c624e3c8eca060b209f5d792a7f874f5`).
-It changes 431 bytes in 10 places and nothing else:
+It changes 440 bytes in 12 places and nothing else:
 
 | What | File offset |
 |---|---|
@@ -17,6 +17,8 @@ It changes 431 bytes in 10 places and nothing else:
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`range_mod`, unit_record id 0x17) | `0x151c14` |
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`mod_land_movement_battle`, unit_record id 0x19) | `0x151c46` |
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`ammo_mod`, unit_record id 0x18) | `0x151c78` |
+| Drop-in off: the handler for a drop-in invitation ("Drop-in battle available") returns before telling the UI | `0x1153316` |
+| Drop-in off: starting to host a drop-in battle (CampaignUI.PlayDropInBattle) returns 0, not started | `0x11236b0` |
 | Parser hook: the unit_record bonus-name parser's not-found exit jumps to the parser extension | `0xbd315d` |
 | New code in the unused tail: the routines below and the signature `VU_ABILITY_PATCH 4` | `0x15a0040` |
 
@@ -30,7 +32,12 @@ What it does, in words:
 * **Stats.** The game adds clan bonuses to a land unit's charge, reload, range, speed and ammunition
   only per unit class or category. Each stat hook keeps that lookup and also adds the same kind of
   bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
-  for a unit type:
+  for a unit type (see the table below).
+* **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
+  modified game file it could get the player's Steam account banned (Valve Anti-Cheat). Invitations
+  to join someone else's battle are never shown, and hosting one never starts.
+
+The stat bonuses:
 
 | unit_record bonus | adds |
 |---|---|
@@ -85,6 +92,20 @@ Original at 0x10152878 (file offset 0x151c78):
 10152878  e843caa700       call 0x10bcf2c0
 Patched:
 10152878  e8ffe44401       call 0x115a0d7c
+
+Original at 0x11153f16 (file offset 0x1153316):
+11153f16  83ec24           sub esp, 0x24
+11153f19  6a00             push 0
+Patched:
+11153f16  31c0             xor eax, eax
+11153f18  c20400           ret 4
+
+Original at 0x111242b0 (file offset 0x11236b0):
+111242b0  56               push esi
+111242b1  8bf1             mov esi, ecx
+Patched:
+111242b0  31c0             xor eax, eax
+111242b2  c20800           ret 8
 
 Original at 0x10bd3d5d (file offset 0xbd315d):
 10bd3d5d  5f               pop edi
