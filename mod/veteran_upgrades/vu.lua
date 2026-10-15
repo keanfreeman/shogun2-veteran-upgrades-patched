@@ -457,7 +457,7 @@ local function vu_refresh_panel()
 				tip = string.format("%s\nRequires %s at %d/%d first.", line.label, lock.label, #lock.levels, #lock.levels)
 			elseif line.needs_patch and not VU_PATCH then
 				tip = string.format("%s%s\n%s\nNeeds the game patch that comes with " .. VU_TITLE .. " (patch version " .. VU_PATCH_MIN .. " or later), which isn't installed in this game.",
-					line.kind == "ability" and "Ability: " or "", line.label, line.kind == "ability" and line.desc or ("Raises " .. line.stat .. "."))
+					line.kind == "ability" and "Ability: " or "", line.label, (line.kind ~= "stat" and line.desc ~= "") and line.desc or ("Raises " .. line.stat .. "."))
 			elseif line.kind == "ability" then
 				tip = string.format("Ability: %s\n%s\n%s\nApplies to every %s you have, including units already in your armies.%s", line.label, line.desc,
 					owned > 0 and "Unlocked for every " .. fam.name .. "." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points),
@@ -1100,8 +1100,8 @@ end
 -- handling it while the campaign UI is being built crashed the game at campaign start.)
 local function VU_OnPreBattle(context)
 	vu_guard("PreBattle", function()
-		EpisodicScripting.game_interface:add_time_trigger("vu_dropin", 0.1)
-		EpisodicScripting.game_interface:add_time_trigger("vu_dropin", 1)
+		EpisodicScripting.game_interface:add_time_trigger("vu_dropin1", 0.1)   -- distinct names, in case
+		EpisodicScripting.game_interface:add_time_trigger("vu_dropin2", 1)     -- a same-named one replaces it
 	end)
 end
 
@@ -1164,7 +1164,9 @@ local function VU_OnLoadingGame(context)
 		for _, fam in ipairs(VU_FAMILIES) do
 			VU.levels[fam.id] = {}
 			for _, line in ipairs(fam.lines) do
-				VU.levels[fam.id][line.key] = gi:load_named_value("VU_L_" .. fam.id .. "__" .. line.key, 0, context)
+				-- clamped: a save from a build whose line had more levels must not index past the levels
+				local l = gi:load_named_value("VU_L_" .. fam.id .. "__" .. line.key, 0, context)
+				VU.levels[fam.id][line.key] = math.min(l, #line.levels)
 			end
 		end
 		VU.ai = {}
@@ -1646,7 +1648,7 @@ local function VU_OnComponentLClickUp(context)
 end
 
 local function VU_OnTimeTrigger(context)
-	if context.string == "vu_dropin" then vu_guard("block drop-in", vu_block_dropin) return end
+	if context.string == "vu_dropin1" or context.string == "vu_dropin2" then vu_guard("block drop-in", vu_block_dropin) return end
 	if context.string ~= "vu_click" then return end
 	vu_guard("click", function()
 		local c = VU.click

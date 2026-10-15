@@ -14,6 +14,7 @@ Needs patch version 4 (included; run `Install patch.bat` again when updating fro
   trees' steps made similar units pay up to double); one-level traits 6-10 points; Range, Reload and
   Speed priced up for their value.
 - Sharper ability icons (the 51x51 battle buttons instead of 22x22 icons).
+- Saves from 1.0 keep their upgrades; a respec refunds at the 2.0 prices.
 
 ## Patched Edition 1.0.0
 First release: Veteran Upgrades 1.1.0 for a game patched to grant abilities per unit type (patch

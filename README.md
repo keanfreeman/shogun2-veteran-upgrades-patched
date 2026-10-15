@@ -83,6 +83,9 @@ Your upgrades carry over.
    also puts the original file back.
 3. Untick the mod in the launcher. (To remove it completely, delete the two files from `data`.)
 
+While patched, the game also saves its "allow drop-in battles" setting as off; restoring the game
+doesn't switch it back on, so tick it again in the settings if you want drop-in battles.
+
 `Patch status.bat` tells you whether the game is currently patched.
 
 ## Troubleshooting
