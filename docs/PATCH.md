@@ -5,7 +5,7 @@ The player patchers ([player/](../player/)) write exactly these bytes; `tools/ve
 re-assembles them from the source below and checks that, on every push (GitHub Actions).
 
 The patch is for `empire.retail.dll` of the Steam Windows build (SHA-256 `022fae2e2da92b59b8b1b8ee52887003c624e3c8eca060b209f5d792a7f874f5`).
-It changes 524 bytes in 16 places and nothing else:
+It changes 596 bytes in 18 places and nothing else:
 
 | What | File offset |
 |---|---|
@@ -18,7 +18,9 @@ It changes 524 bytes in 16 places and nothing else:
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`mod_land_movement_battle`, unit_record id 0x19) | `0x151c46` |
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`ammo_mod`, unit_record id 0x18) | `0x151c78` |
 | Range routine, in unused int3 padding: adds the class + unit_record range bonus to the unit's additive range field (the vanilla code multiplied it, and it starts at 0) | `0xb4f20` |
-| Charge routine, in unused int3 padding: the charge lookup as the other stat routines, and sets the unit's "can fire while hidden" flag when bit 23 of the unit type's general_aoe_mod bonus is set | `0x127f232` |
+| Charge routine part 1, in unused int3 padding: the charge lookup as the other stat routines, then the unit type's general_aoe_mod bits | `0x127f232` |
+| Charge routine part 2, in unused int3 padding: bits 23/22/21 set the unit's fire-while-hidden / hide-in-every-terrain / guerrilla-deployment flags | `0x7407e1` |
+| Charge routine part 3, in unused int3 padding: adds the unit type's bonus_vs_cavalry bonus to its bonus vs cavalry; then the name "bonus_vs_cavalry" | `0xe12f23` |
 | Drop-in off: the campaign's drop-in battles flag is always computed as off (the preference defaults to on) | `0x11854bd` |
 | Drop-in off: the drop-in flag's setter always stores off | `0x1188401` |
 | Drop-in off: the handler for a drop-in invitation ("Drop-in battle available") returns before telling the UI | `0x1153316` |
@@ -38,8 +40,10 @@ What it does, in words:
   starts at 0). Each stat hook keeps that lookup and also adds the same kind of
   bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
   for a unit type (see the table below).
-* **Fire while hidden.** The charge routine also sets the unit's "can fire while hidden" flag (as
-  `can_snipe` in the unit's stats) when bit 23 of the unit type's `general_aoe_mod` bonus is set.
+* **Unit attributes.** The charge routine also sets unit attributes from bits of the unit type's
+  `general_aoe_mod` bonus: bit 23 "can fire while hidden" (`can_snipe`), bit 22 "can hide in every
+  terrain" (the four `hide_*` flags), bit 21 "guerrilla deployment" (deploy anywhere on the map). It
+  also adds a new unit-type bonus, `bonus_vs_cavalry`, to the unit's bonus vs cavalry.
 * **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
   modified game file it could get the player's Steam account banned (Valve Anti-Cheat). Invitations
   to join someone else's battle are never shown, and battles are never offered to other players
@@ -185,11 +189,6 @@ Original at 0x1127fe32 (file offset 0x127f232):
 1127fe58  cc               int3
 1127fe59  cc               int3
 1127fe5a  cc               int3
-1127fe5b  cc               int3
-1127fe5c  cc               int3
-1127fe5d  cc               int3
-1127fe5e  cc               int3
-1127fe5f  cc               int3
 Patched:
 1127fe32  51               push ecx
 1127fe33  ff74240c         push dword ptr [esp + 0xc]
@@ -197,16 +196,122 @@ Patched:
 1127fe3b  e8dc0e3200       call 0x115a0d1c
 1127fe40  59               pop ecx
 1127fe41  50               push eax
-1127fe42  6a09             push 9
-1127fe44  6a00             push 0
-1127fe46  56               push esi
-1127fe47  6a10             push 0x10
-1127fe49  e8926095ff       call 0x10bd5ee0
-1127fe4e  0fbae017         bt eax, 0x17
-1127fe52  7308             jae 0x1127fe5c
-1127fe54  c68424dc00000001 mov byte ptr [esp + 0xdc], 1
-1127fe5c  58               pop eax
-1127fe5d  c20800           ret 8
+1127fe42  51               push ecx
+1127fe43  6a09             push 9
+1127fe45  6a00             push 0
+1127fe47  56               push esi
+1127fe48  6a10             push 0x10
+1127fe4a  e8916095ff       call 0x10bd5ee0
+1127fe4f  8d94248c000000   lea edx, [esp + 0x8c]
+1127fe56  e986154cff       jmp 0x107413e1
+
+Original at 0x107413e1 (file offset 0x7407e1):
+107413e1  cc               int3
+107413e2  cc               int3
+107413e3  cc               int3
+107413e4  cc               int3
+107413e5  cc               int3
+107413e6  cc               int3
+107413e7  cc               int3
+107413e8  cc               int3
+107413e9  cc               int3
+107413ea  cc               int3
+107413eb  cc               int3
+107413ec  cc               int3
+107413ed  cc               int3
+107413ee  cc               int3
+107413ef  cc               int3
+107413f0  cc               int3
+107413f1  cc               int3
+107413f2  cc               int3
+107413f3  cc               int3
+107413f4  cc               int3
+107413f5  cc               int3
+107413f6  cc               int3
+107413f7  cc               int3
+107413f8  cc               int3
+107413f9  cc               int3
+107413fa  cc               int3
+107413fb  cc               int3
+107413fc  cc               int3
+107413fd  cc               int3
+107413fe  cc               int3
+107413ff  cc               int3
+10741400  cc               int3
+10741401  cc               int3
+10741402  cc               int3
+10741403  cc               int3
+Patched:
+107413e1  c1e009           shl eax, 9
+107413e4  7304             jae 0x107413ea
+107413e6  c6425401         mov byte ptr [edx + 0x54], 1
+107413ea  d1e0             shl eax, 1
+107413ec  7307             jae 0x107413f5
+107413ee  c7424f01010101   mov dword ptr [edx + 0x4f], 0x1010101
+107413f5  d1e0             shl eax, 1
+107413f7  7304             jae 0x107413fd
+107413f9  c6426901         mov byte ptr [edx + 0x69], 1
+107413fd  59               pop ecx
+107413fe  52               push edx
+107413ff  e91f276d00       jmp 0x10e13b23
+
+Original at 0x10e13b23 (file offset 0xe12f23):
+10e13b23  cc               int3
+10e13b24  cc               int3
+10e13b25  cc               int3
+10e13b26  cc               int3
+10e13b27  cc               int3
+10e13b28  cc               int3
+10e13b29  cc               int3
+10e13b2a  cc               int3
+10e13b2b  cc               int3
+10e13b2c  cc               int3
+10e13b2d  cc               int3
+10e13b2e  cc               int3
+10e13b2f  cc               int3
+10e13b30  cc               int3
+10e13b31  cc               int3
+10e13b32  cc               int3
+10e13b33  cc               int3
+10e13b34  cc               int3
+10e13b35  cc               int3
+10e13b36  cc               int3
+10e13b37  cc               int3
+10e13b38  cc               int3
+10e13b39  cc               int3
+10e13b3a  cc               int3
+10e13b3b  cc               int3
+10e13b3c  cc               int3
+10e13b3d  cc               int3
+10e13b3e  cc               int3
+10e13b3f  cc               int3
+10e13b40  cc               int3
+10e13b41  cc               int3
+10e13b42  cc               int3
+10e13b43  cc               int3
+10e13b44  cc               int3
+10e13b45  cc               int3
+10e13b46  cc               int3
+10e13b47  cc               int3
+Patched:
+10e13b23  6a20             push 0x20
+10e13b25  6a00             push 0
+10e13b27  56               push esi
+10e13b28  6a10             push 0x10
+10e13b2a  e8b123dcff       call 0x10bd5ee0
+10e13b2f  5a               pop edx
+10e13b30  01421c           add dword ptr [edx + 0x1c], eax
+10e13b33  58               pop eax
+10e13b34  c20800           ret 8
+10e13b37  626f6e           bound ebp, qword ptr [edi + 0x6e]
+10e13b3a  7573             jne 0x10e13baf
+10e13b3c  5f               pop edi
+10e13b3d  7673             jbe 0x10e13bb2
+10e13b3f  5f               pop edi
+10e13b40  636176           arpl word ptr [ecx + 0x76], sp
+10e13b43  61               popal
+10e13b44  6c               insb byte ptr es:[edi], dx
+10e13b45  7279             jb 0x10e13bc0
 
 Original at 0x111860bd (file offset 0x11854bd):
 111860bd  b001             mov al, 1
@@ -275,7 +380,7 @@ Patched:
 115a0c98  83f909           cmp ecx, 9
 115a0c9b  7760             ja 0x115a0cfd
 115a0c9d  01c8             add eax, ecx
-115a0c9f  83f817           cmp eax, 0x17
+115a0c9f  83f815           cmp eax, 0x15
 115a0ca2  7359             jae 0x115a0cfd
 115a0ca4  52               push edx
 115a0ca5  50               push eax
@@ -341,7 +446,7 @@ key_ok:
     cmp ecx, 9
     ja skip
     add eax, ecx
-    cmp eax, 23
+    cmp eax, 21
     jae skip
     push edx
     push eax
@@ -534,6 +639,7 @@ Name table (int32 name VA minus entry VA, then the id byte; 0 ends it):
 115a0dde  0edd0a0017  range_mod -> 0x17
 115a0de3  85dc0a0019  mod_land_movement_battle -> 0x19
 115a0de8  b0cf0a0018  ammo_mod -> 0x18
+115a0ded  4a2d87ff20  bonus_vs_cavalry -> 0x20
 ```
 
 Source (keystone syntax, from patch.py):

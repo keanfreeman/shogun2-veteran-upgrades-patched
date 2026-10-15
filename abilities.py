@@ -1,19 +1,21 @@
 """Clone records and bits, shared by the patch, the test pack and the mod.
 
-A mod attaches a CLONE ability record to a unit type: key "vuNN_<ability>" (NN = 00-22, the bit),
+A mod attaches a CLONE ability record to a unit type: key "vuNN_<ability>" (NN = 00-20, the bit),
 supersedes_ability = <ability>, requires_effect_enabling = True. The patched engine grants the real
 <ability> to units of that type when bit NN is set in the type's general_aoe_mod bonus (and any
 research the real ability needs is done - a key "vuNNf<ability>" waives that). Anything may follow
-the five-character prefix. Bonus values are floats, so bits 0-23 (exact up to 2^24); bit 23 is not an
-ability: patch v4 gives the unit type "fire while hidden" (SNIPE_BIT).
+the five-character prefix. Bonus values are floats, so bits 0-23 (exact up to 2^24); bits 21-23 are
+not abilities but unit attributes patch v4 sets (GUERRILLA_BIT, CAMO_BIT, SNIPE_BIT).
 
 Bits only have to be unique among the clones of ONE unit type, so a mod can offer any number of
 abilities overall: assign_bits() colours the abilities so no unit type has two with the same bit.
 """
 import collections
 
-MAX_BITS = 23    # ability bits 0-22
-SNIPE_BIT = 23   # general_aoe_mod bit 23: the unit type can fire while hidden (patch v4)
+MAX_BITS = 21        # ability bits 0-20
+GUERRILLA_BIT = 21   # general_aoe_mod bits for unit attributes (patch v4): guerrilla deployment,
+CAMO_BIT = 22        # hide in every terrain,
+SNIPE_BIT = 23       # fire while hidden
 
 
 def clone_key(bit, ability, no_research=False):

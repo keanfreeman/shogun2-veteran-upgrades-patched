@@ -22,7 +22,7 @@ import hashlib, os, shutil, struct, sys
 
 import capstone, keystone, pefile
 
-from abilities import MAX_BITS, SNIPE_BIT
+from abilities import MAX_BITS, SNIPE_BIT, CAMO_BIT, GUERRILLA_BIT
 
 GAME = os.environ.get("SHOGUN2_DIR", os.path.expanduser(
     "~/.local/share/Steam/steamapps/common/Total War SHOGUN 2"))
@@ -95,14 +95,21 @@ STAT_BONUSES = {name: orig_id + STAT_ID_SHIFT for _, _, _, orig_id, name in STAT
 RANGE_FIELD_AT_ENTRY = 0xC4
 RANGE_VA = 0x100B5B20          # in the 56 bytes of int3 padding at 0x100b5b18..0x100b5b4f
 RANGE_PAD_END = 0x100B5B50
-# Fire while hidden: the stats struct's can_snipe flag (+0x54, from unit_stats_land can_snipe; the
-# constructor FUN_10c0ac90 copies record +0x1f4 there). The charge call's routine also sets it when
-# bit SNIPE_BIT of the unit type's general_aoe_mod bonus is set. At that call the struct is the
-# builder's [esp+0x78] (charge, +0xf0, is its [esp+0x168]), so the flag is [esp+0xd8] at the
-# routine's entry.
-SNIPE_FLAG_AT_ENTRY = 0xD8
-CHARGE_VA = 0x1127FE32         # in the 46 bytes of int3 padding at 0x1127fe32..0x1127fe5f
-CHARGE_PAD_END = 0x1127FE60
+# Unit attributes and bonus vs cavalry. The stats struct holds unit_stats_land's flags as bytes (the
+# constructor FUN_10c0ac90 copies them from the record): hide_medium_woodland/scrub/long_grass/
+# buildings at +0x4f..+0x52, can_snipe at +0x54, guerrilla_deployment at +0x69; and
+# melee_bonus_vs_cavalry (int) at +0x1c. The charge call's routine (charge as the other int stats)
+# also reads the unit type's general_aoe_mod bits 21-23 and sets those flags, and adds a new
+# unit_record bonus "bonus_vs_cavalry" (id BONUS_VS_CAVALRY) to +0x1c. At that call the struct is the
+# builder's [esp+0x78] (charge, +0xf0, is its [esp+0x168]), i.e. [esp+0x84] at the routine's entry.
+# The routine is too big for one gap, so it runs through three int3 padding gaps, joined by jumps.
+STRUCT_AT_ENTRY = 0x84
+FLAG_SNIPE, FLAG_HIDE4, FLAG_GUERRILLA, FIELD_VS_CAVALRY = 0x54, 0x4F, 0x69, 0x1C
+BONUS_VS_CAVALRY = 0x20
+VS_CAVALRY_NAME = b"bonus_vs_cavalry\0"
+CHARGE_GAPS = [(0x1127FE32, 0x1127FE60),   # (start, end) of each gap: part 1 = the charge routine's entry
+               (0x107413E1, 0x10741410),
+               (0x10E13B23, 0x10E13B50)]   # part 3, then the bonus name
 # The engine's own copies of those names (the unit_class/unit_category name tables point at them).
 NAME_VA = {"charge_bonus": 0x1164EA58, "reload": 0x1164EAD4, "range_mod": 0x1164EAEC,
            "mod_land_movement_battle": 0x1164EA68, "ammo_mod": 0x1164DD98}
@@ -283,27 +290,52 @@ ASM_RANGE = f"""
     fldz
     ret 8
 """
-ASM_CHARGE = f"""
+ASM_CHARGE = [f"""
     push ecx
     push dword ptr [esp + 0xc]
     push dword ptr [esp + 0xc]
     call STAT_INT
     pop ecx
     push eax
+    push ecx
     push {BONUS_GENERAL_AOE}
     push 0
     push esi
     push {CAT_UNIT_RECORD:#x}
     call {BONUS_LOOKUP_FN:#x}
-    bt eax, {SNIPE_BIT}
-    jnc done
-    mov byte ptr [esp + {SNIPE_FLAG_AT_ENTRY + 4:#x}], 1
-done:
+    lea edx, [esp + {STRUCT_AT_ENTRY + 8:#x}]
+    jmp PART2
+""", f"""
+    shl eax, {32 - SNIPE_BIT}
+    jnc no_snipe
+    mov byte ptr [edx + {FLAG_SNIPE:#x}], 1
+no_snipe:
+    shl eax, 1
+    jnc no_camo
+    mov dword ptr [edx + {FLAG_HIDE4:#x}], 0x01010101
+no_camo:
+    shl eax, 1
+    jnc no_guerrilla
+    mov byte ptr [edx + {FLAG_GUERRILLA:#x}], 1
+no_guerrilla:
+    pop ecx
+    push edx
+    jmp PART3
+""", f"""
+    push {BONUS_VS_CAVALRY:#x}
+    push 0
+    push esi
+    push {CAT_UNIT_RECORD:#x}
+    call {BONUS_LOOKUP_FN:#x}
+    pop edx
+    add dword ptr [edx + {FIELD_VS_CAVALRY:#x}], eax
     pop eax
     ret 8
-"""
-# Charge as stat_int (class + unit_record), keeping the container (ecx) for the general_aoe_mod lookup;
-# with the charge result pushed, the flag is at [esp + 4 + SNIPE_FLAG_AT_ENTRY].
+"""]
+# Part 1: charge as stat_int (class + unit_record), keeping the container; then [esp] = container,
+# [esp+4] = charge result, so the struct is at [esp + 8 + STRUCT_AT_ENTRY]. Part 2: shifting the bits
+# out of eax tests 23 (fire while hidden), 22 (hide everywhere: four bytes), 21 (guerrilla); edx
+# (the struct) is saved over the next lookup. Part 3: bonus vs cavalry, then return the charge.
 
 # The two pushes repeat the routine's own arguments (class record, bonus id) for stat_class_f, which
 # returns class + unit_record bonus in st(0) and pops them.
@@ -357,14 +389,25 @@ def stat_labels():
         prefix = ASM_STATS.split(f"stat_{kind}:")[0]
         labels[kind] = va + len(_asm(prefix, va)) if prefix.strip() else va
     labels["range"] = RANGE_VA
-    labels["charge"] = CHARGE_VA
+    labels["charge"] = CHARGE_GAPS[0][0]
     return labels
 
 
-def charge_routine():
-    code = _asm(ASM_CHARGE.replace("STAT_INT", hex(stat_labels()["int"])), CHARGE_VA)
-    assert CHARGE_VA + len(code) <= CHARGE_PAD_END, f"charge routine is {len(code):#x} bytes"
-    return code
+def charge_parts():
+    """[(VA, bytes)] of the charge routine's three parts, the last followed by the bonus name."""
+    (a1, e1), (a2, e2), (a3, e3) = CHARGE_GAPS
+    src = [ASM_CHARGE[0].replace("STAT_INT", hex(stat_labels()["int"])).replace("PART2", hex(a2)),
+           ASM_CHARGE[1].replace("PART3", hex(a3)), ASM_CHARGE[2]]
+    parts = [(va, _asm(code, va)) for va, code in zip((a1, a2, a3), src)]
+    parts[2] = (a3, parts[2][1] + VS_CAVALRY_NAME)
+    for (va, code), (_, end) in zip(parts, CHARGE_GAPS):
+        assert va + len(code) <= end, f"charge part at {va:#x} is {len(code):#x} bytes"
+    return parts
+
+
+def vs_cavalry_name_va():
+    a3, code = charge_parts()[2]
+    return a3 + len(code) - len(VS_CAVALRY_NAME)
 
 
 def range_routine():
@@ -382,9 +425,10 @@ def parse_routine():
     code = _asm(ASM_PARSE.replace("TABLE_DELTA", hex(table_va - here)), va)
     assert va + len(code) == table_va, "parser routine size changed with the real delta"
     table = bytearray()
-    for name, bonus_id in STAT_BONUSES.items():
+    for name, bonus_id in list(STAT_BONUSES.items()) + [("bonus_vs_cavalry", BONUS_VS_CAVALRY)]:
         entry_va = table_va + len(table)
-        table += struct.pack("<iB", NAME_VA[name] - entry_va, bonus_id)
+        name_va = vs_cavalry_name_va() if name == "bonus_vs_cavalry" else NAME_VA[name]
+        table += struct.pack("<iB", name_va - entry_va, bonus_id)
     return code + bytes(table) + struct.pack("<i", 0)
 
 
@@ -432,8 +476,8 @@ def hooks():
         out.append((site, call_bytes(site, target), call_bytes(site, labels[kind])))
     code = range_routine()
     out.append((RANGE_VA, b"\xcc" * len(code), code))
-    code = charge_routine()
-    out.append((CHARGE_VA, b"\xcc" * len(code), code))
+    for va, code in charge_parts():
+        out.append((va, b"\xcc" * len(code), code))
     out += DROPIN_PATCHES
     out.append((PARSE_HOOK_VA, PARSE_HOOK_ORIG,
                 jmp_bytes(PARSE_HOOK_VA, CAVE_VA + PARSE_OFFSET, len(PARSE_HOOK_ORIG))))

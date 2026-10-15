@@ -87,9 +87,14 @@ def patch_doc():
     hook_names[patch.RANGE_VA] = ("Range routine, in unused int3 padding: adds the class + unit_record range "
                                   "bonus to the unit's additive range field (the vanilla code multiplied it, "
                                   "and it starts at 0)")
-    hook_names[patch.CHARGE_VA] = ("Charge routine, in unused int3 padding: the charge lookup as the other stat "
-                                   "routines, and sets the unit's \"can fire while hidden\" flag when bit "
-                                   f"{patch.SNIPE_BIT} of the unit type's general_aoe_mod bonus is set")
+    gaps = [va for va, _ in patch.CHARGE_GAPS]
+    hook_names[gaps[0]] = ("Charge routine part 1, in unused int3 padding: the charge lookup as the other stat "
+                           "routines, then the unit type's general_aoe_mod bits")
+    hook_names[gaps[1]] = (f"Charge routine part 2, in unused int3 padding: bits {patch.SNIPE_BIT}/{patch.CAMO_BIT}/"
+                           f"{patch.GUERRILLA_BIT} set the unit's fire-while-hidden / hide-in-every-terrain / "
+                           "guerrilla-deployment flags")
+    hook_names[gaps[2]] = ("Charge routine part 3, in unused int3 padding: adds the unit type's bonus_vs_cavalry "
+                           "bonus to its bonus vs cavalry; then the name \"bonus_vs_cavalry\"")
     for site, _, _, orig_id, name in patch.STAT_HOOKS:
         hook_names[site] = (f"Stat hook, land unit stats builder: a `call` now goes to a stat routine "
                             f"(`{name}`, unit_record id {orig_id + patch.STAT_ID_SHIFT:#x})")
@@ -104,8 +109,9 @@ def patch_doc():
         if name == "parser extension":   # code, then the name table (data)
             n = len(patch._asm(patch.ASM_PARSE.replace("TABLE_DELTA", "0x7f"), va))
             text = disasm(code[:n], va) + "\n\nName table (int32 name VA minus entry VA, then the id byte; 0 ends it):\n"
+            names = list(patch.STAT_BONUSES.items()) + [("bonus_vs_cavalry", patch.BONUS_VS_CAVALRY)]
             text += "\n".join(f"{va + n + 5 * i:08x}  {code[n + 5 * i:n + 5 * i + 5].hex()}  {nm} -> {bid:#x}"
-                              for i, (nm, bid) in enumerate(patch.STAT_BONUSES.items()))
+                              for i, (nm, bid) in enumerate(names))
         blocks.append(f"## {name[0].upper() + name[1:]} (`{va:#x}`)\n\n```\n{text}\n```\n\n"
                       f"Source (keystone syntax, from patch.py):\n\n```\n{sources[name].strip()}\n```\n")
     stats = "\n".join(f"| `{name}` | {what} |" for name, what in [
@@ -142,8 +148,10 @@ What it does, in words:
   starts at 0). Each stat hook keeps that lookup and also adds the same kind of
   bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
   for a unit type (see the table below).
-* **Fire while hidden.** The charge routine also sets the unit's "can fire while hidden" flag (as
-  `can_snipe` in the unit's stats) when bit 23 of the unit type's `general_aoe_mod` bonus is set.
+* **Unit attributes.** The charge routine also sets unit attributes from bits of the unit type's
+  `general_aoe_mod` bonus: bit 23 "can fire while hidden" (`can_snipe`), bit 22 "can hide in every
+  terrain" (the four `hide_*` flags), bit 21 "guerrilla deployment" (deploy anywhere on the map). It
+  also adds a new unit-type bonus, `bonus_vs_cavalry`, to the unit's bonus vs cavalry.
 * **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
   modified game file it could get the player's Steam account banned (Valve Anti-Cheat). Invitations
   to join someone else's battle are never shown, and battles are never offered to other players

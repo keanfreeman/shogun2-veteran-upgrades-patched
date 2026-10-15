@@ -62,6 +62,7 @@ local function make_panel()
 	local ids = { "avatar_skill_fatigue_resistance_aura", "avatar_skill_melee_attack", "avatar_skill_melee_defence",
 		"avatar_skill_marksmanship", "avatar_skill_morale", "avatar_skill_armour", "avatar_skill_speed",
 		"avatar_skill_charge", "avatar_skill_rally", "avatar_skill_stamina" }
+	for i = #ids + 1, 28 do ids[i] = "avatar_skill_extra_" .. i end   -- the real popup has 28 skill nodes
 	for i, id in ipairs(ids) do
 		local s = node(id, sub, { x = (i % 4) * 150, y = 300 + math.floor(i / 4) * 100 })
 		node("skill_icon", s) node("skill_name", s) node("arrow_straight", s)
@@ -172,6 +173,15 @@ function MOCK.node_labelled(prefix)
 		local n = MOCK.C[i]
 		local l = n.visible and MOCK.label_of(n)
 		if l and string.find(l, prefix, 1, true) == 1 then return n end
+	end
+end
+function MOCK.line(prefix)   -- an upgrade line's node, paging the upgrade panel if it's on another page
+	for _ = 1, 3 do
+		local n = MOCK.node_labelled(prefix)
+		if n then return n end
+		local pg = MOCK.find("vu_page")
+		if not (pg and pg.visible) then return nil end
+		MOCK.click(pg)
 	end
 end
 function MOCK.battle(units, faction)   -- one battle: every unit fights; human units unless a faction is given

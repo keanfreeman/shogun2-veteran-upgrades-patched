@@ -18,7 +18,7 @@ import collections, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(HERE, "..", ".."))   # the patch repo: abilities.py (the patch's bit table)
-from abilities import MAX_BITS, SNIPE_BIT, assign_bits, clone_key as patch_clone_key
+from abilities import MAX_BITS, SNIPE_BIT, CAMO_BIT, GUERRILLA_BIT, assign_bits, clone_key as patch_clone_key
 from tools_packread import extract
 from tools_packwrite import write_pack
 from tools_db import load, load_file, encode, GAME_DATA
@@ -117,16 +117,18 @@ UNIVERSAL_STATS = [
     ("reload", "Reload", "skill_reload", 5.0, True),
     ("ammo_mod", "Ammunition", "skill_ammo_quantity", 10.0, True),
     ("range_mod", "Range", "skill_range", 5.0, True),
+    # +2 per level, +20 at 10 (Yari Ashigaru have 20, MP trees +3..+15). Foot units only (below).
+    ("bonus_vs_cavalry", "Bonus vs Cavalry", "skill_bonus_vs_cavalry", 2.0, False),
 ]
-PATCH_STATS = {"charge_bonus", "mod_land_movement_battle", "reload", "ammo_mod", "range_mod",
-               "general_aoe_mod"}   # need patch v4 (general_aoe_mod here: Fire While Hidden, bit SNIPE_BIT)
-SNIPE_COST = 5   # Fire While Hidden: ambushes from cover without giving the unit away
+FOOT_ONLY = {"bonus_vs_cavalry"}
+PATCH_STATS = {"charge_bonus", "mod_land_movement_battle", "reload", "ammo_mod", "range_mod", "bonus_vs_cavalry",
+               "general_aoe_mod"}   # need patch v4 (general_aoe_mod here: the attribute bits 21-23)
 NOT_FOR_ARTILLERY = {"melee_attack_mod", "melee_defence_mod", "charge_bonus"}   # crews aren't meant to fight (unless their tree says so)
 # Panel column (popup heading container) per bonus / ability.
 COLUMN = {"morale": "leadership", "accuracy_mod": "ranged", "reload": "ranged", "armour_mod": "physical",
           "melee_attack_mod": "melee", "melee_defence_mod": "melee", "scares_men": "leadership",
           "charge_bonus": "melee", "mod_land_movement_battle": "physical", "ammo_mod": "ranged", "range_mod": "ranged",
-          "general_aoe_mod": "ranged"}
+          "general_aoe_mod": "ranged", "bonus_vs_cavalry": "melee", "fatigue_resistance": "physical"}
 ABILITY_COLUMN = {"rally": "leadership", "inspire_unit": "leadership", "stand_firm": "leadership",
                   "we_stand_and_fight": "leadership", "ganbatte": "leadership",
                   "warcry": "melee", "banzai": "melee", "heroic_assault": "melee", "rapid_advance": "melee",
@@ -166,7 +168,8 @@ ABILITY_COSTS = {
 # all unit types the mod covers; pick n costs max(1, round(PRICE_K * share * n)).
 PRICE_K = 16
 STAT_FIELD = {"melee_attack_mod": "melee_attack", "melee_defence_mod": "melee_defence", "morale": "morale",
-              "accuracy_mod": "core_marksmanship", "armour_mod": "armour", "charge_bonus": "charge_bonus"}
+              "accuracy_mod": "core_marksmanship", "armour_mod": "armour", "charge_bonus": "charge_bonus",
+              "bonus_vs_cavalry": "melee_bonus_vs_cavalry"}
 PERCENT_SPREAD = {"reload": 100.0,   # percent (or metre) bonuses: a pick's share of this much
                   # priced by value: +20% speed or +50 m range (a 150 m bow reaching 200 m, like extreme-range
                   # arrows) at 10 picks are strong; extra ammunition matters less
@@ -175,7 +178,7 @@ PERCENT_SPREAD = {"reload": 100.0,   # percent (or metre) bonuses: a pick's shar
 STAT_UNIT = {"reload": ("%", "%+n%% reload skill"), "ammo_mod": ("%", "%+n%% ammunition"),
              "mod_land_movement_battle": ("%", "%+n%% battle speed"), "range_mod": (" m", "%+n m range"),
              "charge_bonus": ("", "%+n charge bonus"),
-             "general_aoe_mod": ("", "Can fire while hidden")}
+             "bonus_vs_cavalry": ("", "%+n bonus vs cavalry")}
 PASSIVE_COST = 4   # passive unlocks such as Scare Enemies
 STAT_MAX_LEVEL = 10   # each stat line can be bought this many times...
 STAT_MAX_FACTOR = 2   # ...and buying it that often gives about twice the multiplayer maximum
@@ -449,7 +452,8 @@ def build_catalog(camp):
         for line in lines.values():
             kind = line.get("kind", "stat")
             line.setdefault("kind", kind)
-            col = ABILITY_COLUMN.get(line.get("ability"), "melee") if kind == "ability" else COLUMN.get(line["bonus"], "melee")
+            col = (ABILITY_COLUMN.get(line.get("ability"), "melee") if kind == "ability"
+                   else line.get("column") or COLUMN.get(line["bonus"], "melee"))
             if per_column[col] >= MAX_ROWS:
                 spill = min(SPILL_ORDER, key=lambda c: (per_column[c], SPILL_ORDER.index(c)))
                 if per_column[spill] >= MAX_ROWS:
@@ -533,6 +537,8 @@ def add_universal_lines(lines, keys, available):
     for bonus, label, icon, step, missile_only in UNIVERSAL_STATS:
         if missile_only and not has_missiles(keys):
             continue
+        if bonus in FOOT_ONLY and any(unit_kind(k)[2] for k in keys):
+            continue
         key = "stat_" + bonus
         if artillery and bonus in NOT_FOR_ARTILLERY and key not in lines:
             continue
@@ -549,17 +555,47 @@ def add_universal_lines(lines, keys, available):
     if "passive_scares_men" not in lines and not artillery and not any(already_scares(k) for k in keys):
         out["passive_scares_men"] = {"key": "passive_scares_men", "label": "Scare Enemies", "bonus": "scares_men",
                                      "advanced": True, "icon": STAT_ICON_PATH, "levels": [1.0], "kind": "passive"}
-    if can_take_snipe(keys):
-        out["passive_snipe"] = {"key": "passive_snipe", "label": "Fire While Hidden", "bonus": "general_aoe_mod",
-                                "advanced": True, "kind": "passive", "cost": SNIPE_COST,
-                                "icon": f"data/ui/frontend ui/skills/{'skill_snipe' if 'skill_snipe' in available else 'skill_morale'}.tga",
-                                "levels": [float(1 << SNIPE_BIT)],
-                                "desc": "This unit stays hidden while it shoots, as long as it isn't spotted."}
+    for key, label, bonus, value, cost, icon, column, desc, text, fits in ATTRIBUTE_LINES:
+        if fits(keys):
+            out[key] = {"key": key, "label": label, "bonus": bonus, "advanced": True, "kind": "passive",
+                        "cost": cost, "column": column, "levels": [float(value)], "desc": desc, "effect_text": text,
+                        "icon": f"data/ui/frontend ui/skills/{icon if icon in available else 'skill_morale'}.tga"}
     for key, line in lines.items():
         if key not in out:
             out[key] = line
     return out
 
+
+def lacks_any_hide(keys):
+    """Camouflage: non-artillery units that can't already hide in every terrain."""
+    return not is_artillery(keys) and not all(all((STATS.get(k) or {}).get(f) for f in HIDE_FIELDS) for k in keys)
+
+
+def can_take_guerrilla(keys):
+    return not is_artillery(keys) and not all((STATS.get(k) or {}).get("guerrilla_deployment") for k in keys)
+
+
+def can_take_fatigue(keys):
+    return not is_artillery(keys) and not all((STATS.get(k) or {}).get("fatigue_resistant") for k in keys)
+
+
+# (Attributes are offered unless every unit of the family already has them; units that do are unchanged.)
+# Unit attribute upgrades (one level each): (line key, label, bonus, value, cost, icon, panel column,
+# tooltip, effect text, who can take it). The general_aoe_mod ones are bits patch v4 turns into the
+# unit's flags; fatigue_resistance is a vanilla unit-type bonus (sets the fatigue_resistant flag).
+ATTRIBUTE_LINES = [
+    ("passive_snipe", "Fire While Hidden", "general_aoe_mod", 1 << SNIPE_BIT, 5, "skill_snipe", "ranged",
+     "This unit stays hidden while it shoots, as long as it isn't spotted.", "Can fire while hidden",
+     lambda keys: can_take_snipe(keys)),
+    ("passive_camo", "Camouflage", "general_aoe_mod", 1 << CAMO_BIT, 4, "skill_spot_distance", "physical",
+     "This unit can hide in woodland, scrub, long grass and buildings.", "Can hide in every terrain",
+     lambda keys: lacks_any_hide(keys)),
+    ("passive_guerrilla", "Guerrilla Deployment", "general_aoe_mod", 1 << GUERRILLA_BIT, 4, "skill_guerilla_deployment",
+     "leadership", "This unit can deploy anywhere on the battlefield that the enemy can't see.", "Guerrilla deployment",
+     lambda keys: can_take_guerrilla(keys)),
+    ("passive_fatigue", "Fatigue Resistant", "fatigue_resistance", 1, 5, "skill_stamina", "physical",
+     "This unit tires more slowly.", "Fatigue resistant", lambda keys: can_take_fatigue(keys)),
+]
 
 SNIPE_WEAPONS = {"bow", "musket", "rifle", "sling"}
 HIDE_FIELDS = ("hide_medium_woodland", "hide_scrub", "hide_long_grass", "hide_buildings")
@@ -570,7 +606,7 @@ def can_take_snipe(keys):
     somewhere and can't already."""
     stats = [STATS.get(k) or {} for k in keys]
     return (all(s.get("primary_missile_weapon") in SNIPE_WEAPONS for s in stats) and not is_artillery(keys)
-            and all(any(s.get(f) for f in HIDE_FIELDS) for s in stats) and not any(s.get("can_snipe") for s in stats))
+            and all(any(s.get(f) for f in HIDE_FIELDS) for s in stats) and not all(s.get("can_snipe") for s in stats))
 
 
 def fill_median_steps(catalog):
@@ -610,13 +646,15 @@ def build(catalog):
                 continue
             effect_keys = []
             for u in fam["units"] + fam["copy_keys"]:
-                ek = effect_key(line["bonus"], u)
+                # attribute lines sharing general_aoe_mod get effects of their own (one bit each)
+                ek = effect_key(line["key"] if line["bonus"] == "general_aoe_mod" else line["bonus"], u)
                 effect_keys.append(ek)
                 if ek not in seen_effects:
                     seen_effects.add(ek)
                     eff_rows.append({"effect": ek, "icon": ICON, "priority": 900})
                     junc_rows.append({"bonus_value_id": line["bonus"], "effect": ek, "unit_record_key": u})
-                    text = STAT_UNIT[line["bonus"]][1] if line["bonus"] in STAT_UNIT else f"%+n {BONUS_LABEL.get(line['bonus'], line['label'])}"
+                    text = (line.get("effect_text") or (STAT_UNIT[line["bonus"]][1] if line["bonus"] in STAT_UNIT
+                            else f"%+n {BONUS_LABEL.get(line['bonus'], line['label'])}"))
                     eff_loc.append(("effects_description_" + ek, f"{text} for {disp} (veteran upgrades)"))
             for lvl, value in enumerate(line["levels"], 1):
                 bk = bundle_key(fam["id"], line, lvl)
@@ -708,7 +746,7 @@ def clone_tables(catalog):
 
 BONUS_LABEL = {v[0]: v[1] for v in BONUS.values()}
 BONUS_LABEL["scares_men"] = "Scare Enemies"
-BONUS_LABEL.update({"charge_bonus": "charge bonus", "mod_land_movement_battle": "battle speed", "reload": "reload skill",
+BONUS_LABEL.update({"bonus_vs_cavalry": "bonus vs cavalry", "charge_bonus": "charge bonus", "mod_land_movement_battle": "battle speed", "reload": "reload skill",
                     "ammo_mod": "ammunition", "range_mod": "range"})
 STAT_ICON_PATH = "data/ui/frontend ui/skills/skill_melee_attack.tga"
 
@@ -869,7 +907,7 @@ def lua_data(catalog, camp):
             lines.append({"key": line["key"], "label": line["label"], "advanced": line["advanced"], "icon": line["icon"],
                           "bonus": line["bonus"], "stat": BONUS_LABEL.get(line["bonus"], line["label"]),
                           "unit": STAT_UNIT.get(line["bonus"], ("",))[0],
-                          "needs_patch": ability or line["bonus"] in PATCH_STATS,
+                          "needs_patch": ability or line["bonus"] in PATCH_STATS,   # fatigue_resistance: vanilla
                           "kind": line["kind"], "column": line["column"], "row": line["row"], "page": line["page"],
                           "desc": line.get("desc", ""), "gated": line.get("gated", False), "requires": line.get("requires", ""),
                           "levels": [{"bundle": bundle_key(fam["id"], line, i), "value": v,
