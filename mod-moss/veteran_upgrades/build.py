@@ -917,10 +917,11 @@ MENU_TEXTS = {
 
 
 def multiplayer_off_files():
-    """Our copy of the main-menu layout with the multiplayer buttons renamed, and a full copy of
-    ui_component_localisation.loc with their labels changed (a full copy: which of two loc files wins
-    for the same key is untested). MoSS's Original Clans pack ships its own ui_component_localisation.loc
-    (MoSS doesn't change the menu layout): the copy is made from that one, so MoSS's texts stay."""
+    """Our copy of the main-menu layout with the multiplayer buttons renamed (MoSS doesn't change the
+    layout), and their new labels in a loc file of our own name holding only those rows. Not a full copy
+    of ui_component_localisation.loc as in the Patched Edition: MoSS's clan packs ship their own, and a
+    copy would replace it (or carry MoSS's texts in our pack). Which of two loc files wins for the same
+    key is untested; if ours loses, the buttons are still dead but keep their usual labels."""
     layout = extract(DATA, MENU_LAYOUT)
     for old, new in MENU_RENAMES.items():
         assert len(old) == len(new)
@@ -930,16 +931,10 @@ def multiplayer_off_files():
         assert n == {b"multiplayer": 2, b"mp_campaign": 1}[old], (old, n)
         layout = layout.replace(prefixed, len(new).to_bytes(2, "little") + new)
     path = "text\\db\\ui_component_localisation.loc"
-    source = LOCAL
-    for p in MOSS_PACKS:   # the last pack that has the file wins, as in game
-        if any(n.lower() == path for n, _, _ in read_index(os.path.join(GAME_DATA, p))):
-            source = os.path.join(GAME_DATA, p)
-    print(f"  {path} from {os.path.basename(source)}")
-    ver, rows = read_loc(extract(source, path))
-    keys = {k for k, _, _ in rows}
-    assert set(MENU_TEXTS) <= keys, set(MENU_TEXTS) - keys
-    rows = [(k, MENU_TEXTS.get(k, v), tip) for k, v, tip in rows]
-    return [(MENU_LAYOUT, layout), (path, write_loc(rows, ver))]
+    _, rows = read_loc(extract(LOCAL, path))
+    missing = set(MENU_TEXTS) - {k for k, _, _ in rows}
+    assert not missing, missing
+    return [(MENU_LAYOUT, layout), loc_file(path, "vu_ui_component_localisation.loc", list(MENU_TEXTS.items()))]
 
 
 def lua_value(v):

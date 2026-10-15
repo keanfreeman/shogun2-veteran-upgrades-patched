@@ -15,6 +15,6 @@ handling of Veteran Upgrades for MoSS 1.1.0. Needs patch version 4 (the Patched 
   formations only for spear units; the multiplayer trees' range skills give no ability (MoSS's
   range_effect is Flaming Arrows), the Range stat covers range.
 - Stat prices are relative to MoSS's units (the spread of each stat over the unit types covered).
-- Its copy of ui_component_localisation.loc (multiplayer buttons off) is made from MoSS's Original
-  Clans copy, so MoSS's texts stay.
+- The multiplayer buttons' labels ship in a small loc file of their own
+  (vu_ui_component_localisation.loc), so MoSS's ui_component_localisation.loc is left alone.
 - Don't enable it together with any other Veteran Upgrades pack.
