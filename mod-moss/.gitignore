@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+# Build outputs
+dist/
+veteran_upgrades/*.pack
+vu_log.txt
+# RPFM's schema is not redistributed here (see README)
+schemas/
