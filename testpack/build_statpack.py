@@ -30,7 +30,7 @@ BONUSES = [  # (unit, bonus, value, description)
     # v4 bonuses
     ("Inf_Spear_Yari_Ashigaru", "charge_bonus", 50, "%+n charge bonus for Yari Ashigaru (stat patch test)"),
     ("Inf_Spear_Yari_Ashigaru", "mod_land_movement_battle", 100, "%+n%% battle speed for Yari Ashigaru (stat patch test)"),
-    ("Inf_Missile_Bow_Ashigaru", "range_mod", 800, "%+n%% range for Bow Ashigaru (stat patch test)"),
+    ("Inf_Missile_Bow_Ashigaru", "range_mod", 800, "%+n m range for Bow Ashigaru (stat patch test)"),
     ("Inf_Missile_Bow_Ashigaru", "ammo_mod", 100, "%+n%% ammunition for Bow Ashigaru (stat patch test)"),
     ("Inf_Missile_Bow_Ashigaru", "reload", 100, "%+n%% reload skill for Bow Ashigaru (stat patch test)"),
 ]
