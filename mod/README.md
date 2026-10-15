@@ -1,16 +1,21 @@
-> **Veteran Upgrades: Patched Edition** (`1.0.0`). A copy of Veteran Upgrades 1.1.0 for a
-> game patched with this repo's `patch.py`. Ability unlocks are effect bundles that the patched
+> **Veteran Upgrades: Patched Edition** (`2.0.0`). A copy of Veteran Upgrades 1.1.0 for a
+> game patched with this repo's patch (version 4). Ability unlocks are effect bundles that the patched
 > engine turns into real abilities on every unit of the type, existing units included: no unit
-> copies, no retraining, no recruitment locks, and AI clans can buy abilities too. Without the patch
-> (detected from Lua) stats work as usual and abilities can't be bought. Builds
-> `veteran_upgrades/veteran_upgrades_patched.pack`; needs `../abilities.py` and `../detect.lua`.
-> Don't enable it together with another Veteran Upgrades pack (they all extend export_advice.lua).
+> copies, no retraining, no recruitment locks, and AI clans can buy abilities too. Patch v4 adds
+> per-unit-type charge, speed, reload, ammunition, range and bonus vs cavalry, and traits (fire while
+> hidden, camouflage, guerrilla deployment); fatigue resistance uses a vanilla bonus. Without the patch
+> (detected from Lua) the basic stats, Scare Enemies and fatigue resistance work and the rest can't be
+> bought. Builds `veteran_upgrades/veteran_upgrades_patched.pack`; needs `../abilities.py` and
+> `../detect.lua`. Don't enable it together with another Veteran Upgrades pack (they all extend
+> export_advice.lua).
 > **Multiplayer is switched off while it is enabled** (Avatar Conquest and Multiplayer Campaign read
-> "Off to keep your account safe" and do nothing): the patched DLL risks a VAC ban online, and multiplayer
-> campaigns need identical data anyway. To play online, disable this mod and restore the DLL
-> (`patch.py restore` or Steam's "Verify integrity of game files"). The pack replaces the main-menu
-> layout and `text/db/ui_component_localisation.loc` (English), so mods that edit those conflict.
-> `tools/release.py` still describes the original mod and hasn't been adapted.
+> "Off to keep your account safe" and do nothing), the pre-battle drop-in button is hidden, and the
+> patch itself switches drop-in battles off: the patched DLL risks a VAC ban online. To play online,
+> disable this mod and restore the DLL (`Restore game.bat`, `patch.py restore` or Steam's "Verify
+> integrity of game files"). The pack replaces the main-menu layout and
+> `text/db/ui_component_localisation.loc` (English), so mods that edit those conflict.
+> Release: `tools/release.py` (zip with the pack, the patcher and `docs/player_readme.txt`).
+> The text below describes the original mod.
 
 # Veteran Upgrades for Total War: Shogun 2
 

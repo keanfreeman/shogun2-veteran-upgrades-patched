@@ -5,13 +5,20 @@
 [![Verify patchers](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/actions/workflows/verify.yml/badge.svg)](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/actions/workflows/verify.yml)
 
 Your clan earns points from every battle it fights and spends them on **upgrades for each unit type**:
-better stats, Scare Enemies, and **battle abilities** such as War Cry, Rally, Inspire, Rapid Volley,
-Pike Wall or Wedge. Upgrades apply to every unit of that type straight away - including the units
-already in your armies. AI clans earn and spend points too. Works in all three campaigns (Sengoku,
-Rise of the Samurai, Fall of the Samurai).
 
-Giving abilities to one unit type isn't something the game normally allows, so this edition comes with
-a **small, reversible patch** to one game file. Without the patch the mod still works, but only for stats.
+- **Stats:** melee attack and defence, armour, morale, accuracy, charge, speed, reload, ammunition,
+  range and bonus vs cavalry.
+- **Traits:** fire while hidden, camouflage (hide in any terrain), guerrilla deployment, fatigue
+  resistance and Scare Enemies.
+- **Battle abilities** such as War Cry, Rally, Inspire, Rapid Volley, Fire by Rank, Pike Wall or Wedge.
+
+Upgrades apply to every unit of that type straight away - including the units already in your armies.
+AI clans earn and spend points too. Works in all three campaigns (Sengoku, Rise of the Samurai, Fall of
+the Samurai).
+
+Most of this isn't something the game normally allows for one unit type, so this edition comes with a
+**small, reversible patch** to one game file. Without the patch the mod still works, but only for the
+basic stats (melee attack and defence, armour, morale, accuracy), Scare Enemies and fatigue resistance.
 
 | Pick a unit type... | ...and buy its upgrades |
 |---|---|
@@ -25,8 +32,9 @@ a **small, reversible patch** to one game file. Without the patch the mod still 
 - You need the **Steam version of Shogun 2 on Windows** (or on Linux through Steam's Proton).
   The native Mac and Linux versions aren't supported.
 - **Single-player only.** Shogun 2's multiplayer uses Valve Anti-Cheat, and a changed game file could
-  get your Steam account banned. The mod turns the multiplayer buttons off while it's enabled, and you
-  must **restore the game before playing multiplayer** (see [Uninstalling](#uninstalling--before-playing-multiplayer)).
+  get your Steam account banned. The mod turns the multiplayer buttons off while it's enabled, the patch
+  switches **drop-in battles** off (other players joining your campaign battles, or you joining theirs),
+  and you must **restore the game before playing multiplayer** (see [Uninstalling](#uninstalling--before-playing-multiplayer)).
 - If Steam updates the game, the patcher may refuse to run until this mod is updated too. That's on
   purpose: it only patches the exact game version it was made for.
 
@@ -42,7 +50,7 @@ a **small, reversible patch** to one game file. Without the patch the mod still 
    **Browse local files**, then open `data`. Usually that's
    `C:\Program Files (x86)\Steam\steamapps\common\Total War SHOGUN 2\data`.
 5. **Patch the game.** In the extracted `patcher` folder, double-click **`Install patch.bat`**.
-   A window opens and should end with *"Patched (patch version 3)"*. Press a key to close it.
+   A window opens and should end with *"Patched (patch version 4)"*. Press a key to close it.
    - If Windows says *"Windows protected your PC"*, click **More info** → **Run anyway**.
    - If it says *Shogun 2 not found*, see [Troubleshooting](#troubleshooting).
 6. **Enable the mod.** Start Shogun 2 from Steam; in the launcher's mod list, tick
@@ -51,12 +59,17 @@ a **small, reversible patch** to one game file. Without the patch the mod still 
 **Linux / Proton:** do steps 1, 3, 4 and 6 the same way; for step 5 run
 `python3 patcher/patch_game.py install` in the extracted folder.
 
+**Updating from 1.0:** replace the two files in `data`, then run `Install patch.bat` again: version 2.0
+needs patch version 4, and the patcher replaces the old patch (it rebuilds from the original file it saved).
+Your upgrades carry over.
+
 ## Playing
 
 - On the campaign map, a **Veterans** button sits below the advisor button. It lists your unit types;
   pick one to open its upgrade tree.
 - Click upgrades to choose them, then **OK** (✓) to buy. **Reset** refunds everything for that unit
-  type for a small fee.
+  type for a small fee. Unit types with many upgrades have a second page: click **Page 1 of 2** in the
+  bottom bar.
 - You earn **1 point per battle** your clan fights in, win or lose.
 - A few abilities also need what normally unlocks them - for example Yari Square needs the
   *Spear Expertise* research, and Stand and Fight needs a general with the *Infantry Leader* skill.
@@ -80,7 +93,7 @@ a **small, reversible patch** to one game file. Without the patch the mod still 
 | *"Refusing: the game DLL is unknown"* | Your game version differs from the one this release supports (usually a Steam update). Run Steam's *Verify integrity of game files* and try again; if it still refuses, wait for an updated release. |
 | *"Shogun 2 is running"* | Quit the game and its launcher first. |
 | No Veterans button / no intro movie | Fully restart the game after installing or updating the mod, and make sure only one Veteran Upgrades mod is enabled. |
-| Abilities show *"Needs the game patch"* | The patch isn't installed (or Steam restored the file): run `Install patch.bat` again. |
+| Upgrades show *"Needs the game patch"* | The patch isn't installed, it's the older version 3 from release 1.0, or Steam restored the file: run `Install patch.bat` again. |
 | Anything else | Open an [issue](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/issues) and attach `vu_log.txt` from the game folder. |
 
 ---
@@ -90,7 +103,7 @@ a **small, reversible patch** to one game file. Without the patch the mod still 
 The patcher ([player/](player/)) is two short, readable scripts - nothing compiled, nothing downloaded:
 
 - **It changes one file:** the game's `empire.retail.dll`, after saving the original next to it as
-  `empire.retail.dll.vanilla`. 348 bytes change in four places; [docs/PATCH.md](docs/PATCH.md) lists
+  `empire.retail.dll.vanilla`. 596 bytes change in 18 places; [docs/PATCH.md](docs/PATCH.md) lists
   every one, disassembled and explained. It writes nothing else (apart from a temporary copy it
   renames into place) and no registry keys; it only *reads* Steam's install path to find the game.
 - **It only patches the exact game file it knows** (checked by SHA-256 before and after) and refuses
@@ -113,10 +126,12 @@ This is an unofficial mod, not supported by Creative Assembly or SEGA. Use it at
 ## Why patch the game at all?
 
 Shogun 2 can unlock an ability for a whole clan (through research) or a whole army (through a general's
-skill), but never for one unit type, and its list of abilities is fixed inside the game's code. The
-regular Workshop mod works around that by adding upgraded *copies* of units, which you have to recruit
-or retrain into (losing veterancy). The patch adds the one missing check to the game, so the units you
-already have simply gain the ability. How that works is below.
+skill), but never for one unit type, and its list of abilities is fixed inside the game's code. Charge,
+speed, reload, ammunition and range bonuses likewise only exist for whole classes of units, and traits
+such as fire while hidden are fixed per unit. The regular Workshop mod works around the abilities by
+adding upgraded *copies* of units, which you have to recruit or retrain into (losing veterancy). The
+patch adds the missing per-unit-type checks to the game, so the units you already have simply gain the
+upgrade. How that works is below.
 
 ## More screenshots
 
@@ -156,7 +171,7 @@ A mod attaches a **clone** record to a unit type instead of the real ability:
 | `unit_special_abilities`, `unit_info_card_abilities_strings` | copies of the real rows under the clone key (safety) |
 | `unit_to_unit_abilities_junctions` | (unit, `vu07_warcry`) |
 
-The key carries the bit: `vuNN_<ability>` (NN = 00-23). The unlock is an ordinary effect:
+The key carries the bit: `vuNN_<ability>` (NN = 00-20; bits 21-23 are the traits below). The unlock is an ordinary effect:
 `general_aoe_mod` on the unit record, with the bundle value a bitmask (bonus values are floats, so 24
 bits). Bits only need to be unique among the clones of one unit type, so any number of abilities can be
 offered overall ([abilities.py](abilities.py) `assign_bits` colours them).
@@ -168,19 +183,43 @@ research for - it grants the **real** ability in the clone's place. Everything e
 native holders, generals, custom battles - behaves as vanilla. Without the patch, clones are dropped by
 the engine, so a mod built this way is harmless on an unpatched game.
 
-Patch layout ([docs/PATCH.md](docs/PATCH.md) has the full disassembly):
+Ability part of the patch ([docs/PATCH.md](docs/PATCH.md) has the full disassembly):
 
 - hook 1 `0x1019e643` (6 bytes): `je skip` -> `jmp routine 1`
 - hook 2 `0x1019e6f2` (7 bytes): `mov edx,[esp+0x24]; add ebx,4` -> `jmp routine 2`
 - routine 1 `0x115a0c40`: clone/key check, bitmask lookup, research check, substitution. The grant
   path appends `*ebx`, so `ebx` is pointed at a scratch local (`[esp+0x10]`, unused by the loop)
   holding the real ability; the cursor is saved in `[esp+0x14]`.
-- routine 2 `0x115a0d20`: restores the cursor before the loop advances.
-- signature `VU_ABILITY_PATCH 3` at `0x115a0d90` (file offset `0x15a0190`); mods detect the patch with
-  [detect.lua](detect.lua).
+- routine 2 `0x115a0d04`: restores the cursor before the loop advances.
+- signature `VU_ABILITY_PATCH 4` at `0x115a0d90` (file offset `0x15a0190`, unchanged since v2); mods
+  detect the patch with [detect.lua](detect.lua).
 - `.text` VirtualSize 0x159fc3e -> 0x159fe00 so the section's unused tail counts as code.
 
-All position-independent (the DLL is ASLR-enabled); the patcher checks no relocation touches a hook.
+### Stats, traits and drop-in (patch v4)
+
+The land unit stats builder (`FUN_10151f10`) adds clan bonuses to a unit's stats per unit class,
+category, caste and - for melee attack/defence, armour, morale and accuracy only - unit type
+(`unit_record`). Patch v4:
+
+- **Stats.** Five calls in the builder (charge, reload, range, speed, ammunition) go to routines that
+  make the original class/category lookup and also add a `unit_record` bonus with id = original + 0x10.
+  The unit_record bonus-name parser's not-found exit accepts the engine's own names for them
+  (`charge_bonus`, `reload`, `range_mod`, `mod_land_movement_battle`, `ammo_mod`) plus a new
+  `bonus_vs_cavalry`. Range is special: the field the vanilla code *multiplies* by the class range
+  bonus is an additive range bonus that starts at 0 (the Increased Range ability adds to it), so the
+  class bonus never worked; the patch adds instead.
+- **Traits.** The charge routine also reads the unit type's `general_aoe_mod` bits 21-23 and sets the
+  unit's stats flags: guerrilla deployment, can hide in every terrain (four flags), can fire while
+  hidden - the same bytes the units table sets for e.g. ninjas. Fatigue resistance needs no patch: the
+  vanilla `fatigue_resistance` unit_record bonus sets that flag.
+- **Drop-in battles off.** The campaign's drop-in flag (from the `allow_drop_in_battles` preference,
+  on by default) is always computed as off and its setter stores off; the "drop-in match candidate
+  found" handler returns before the invitation panel; hosting (`CampaignUI.PlayDropInBattle`) returns
+  "not started".
+
+The routines that don't fit the code section's tail live in unused int3 padding between functions.
+All of the patch is position-independent (the DLL is ASLR-enabled); the patcher checks no relocation
+touches a patched byte.
 
 ### Repository layout
 
@@ -191,7 +230,7 @@ All position-independent (the DLL is ASLR-enabled); the patcher checks no reloca
 | [tools/verify_patchers.py](tools/verify_patchers.py) | Re-assembles the patch and checks `player/` and `docs/PATCH.md` against it (CI) |
 | [abilities.py](abilities.py), [detect.lua](detect.lua) | Clone keys and bit assignment; patch detection for mod scripts |
 | [mod/](mod/) | The mod: a copy of Veteran Upgrades 1.1.0 using the patch (`mod/README.md`) |
-| [testpack/](testpack/) | A minimal test mod for the patch (`build_testpack.py`) |
+| [testpack/](testpack/) | Minimal test mods for the patch: abilities (`build_testpack.py`), stats (`build_statpack.py`) |
 
 ### Building
 
@@ -215,3 +254,7 @@ release (`mod/dist/` and the zip), and `mod/tests/run_tests.py` runs its tests a
   The mod's purchases appeared on existing units in battle.
 - v3 (bit in the clone key, any number of abilities): abilities bought in the mod appeared on existing
   units; abilities needing research or a general's skill stayed off until unlocked.
+- v4 (stats, traits, drop-in): charge, reload, ammunition and bonus vs cavalry changed on the unit card,
+  range showed on the card and the battle's range ring (150 m bows reached 350 m with +200), units were
+  faster in battle; the card listed the new traits, guerrilla deployment and fire while hidden worked in
+  battle; no drop-in invitations, and battles started normally with drop-in on in the campaign settings.
