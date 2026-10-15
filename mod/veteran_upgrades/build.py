@@ -18,7 +18,7 @@ import collections, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(HERE, "..", ".."))   # the patch repo: abilities.py (the patch's bit table)
-from abilities import MAX_BITS, assign_bits, clone_key as patch_clone_key
+from abilities import MAX_BITS, SNIPE_BIT, assign_bits, clone_key as patch_clone_key
 from tools_packread import extract
 from tools_packwrite import write_pack
 from tools_db import load, load_file, encode, GAME_DATA
@@ -86,13 +86,14 @@ RULE_ANY = {"warcry", "rally", "inspire_unit", "stand_firm", "second_wind", "ban
             "heroic_assault", "rapid_advance", "we_stand_and_fight"}                              # any non-artillery unit
 RULE_MISSILE = {"rapid_volley", "range_effect"}                    # anything that shoots (not artillery)
 RULE_BOW = {"flaming_arrows_ability", "whistling_arrows_ability"}   # they swap the unit's arrows
+RULE_GUN_INFANTRY = {"rank_fire"}   # any foot unit with a musket or rifle (bows already fire every rank)
 RULE_SAME_KIND = {"pike_wall_formation", "pike_square_formation", "wedge_formation", "cantabrian_circle",
-                  "kneel_fire_ability", "rank_fire", "suppression_fire",
+                  "kneel_fire_ability", "suppression_fire",
                   "active_hiding", "blinding_grenade", "shrapnel_shot"}   # formations/kit: only unit kinds that have it in vanilla
 # Not offered: bamboo_wall and pavisse_deployable. FUN_1019e580 allows these deployables only in some
 # battle types by comparing the LIST ENTRY's key with those names; a clone (vuNN_...) never matches,
 # so it would be granted in every battle type.
-RULE_ABILITIES = RULE_ANY | RULE_MISSILE | RULE_BOW | RULE_SAME_KIND
+RULE_ABILITIES = RULE_ANY | RULE_MISSILE | RULE_BOW | RULE_GUN_INFANTRY | RULE_SAME_KIND
 # The MP skill-tree popup: 4 columns (headings), and 6 rows fit above its button bar (2026-10-14
 # screenshot: a 7th row sits on the bar). 24 slots; the popup itself has 28 nodes.
 COLUMNS = ["leadership", "ranged", "physical", "melee"]
@@ -116,12 +117,15 @@ UNIVERSAL_STATS = [
     ("ammo_mod", "Ammunition", "skill_ammo_quantity", 10.0, True),
     ("range_mod", "Range", "skill_range", 5.0, True),
 ]
-PATCH_STATS = {"charge_bonus", "mod_land_movement_battle", "reload", "ammo_mod", "range_mod"}   # need patch v4
+PATCH_STATS = {"charge_bonus", "mod_land_movement_battle", "reload", "ammo_mod", "range_mod",
+               "general_aoe_mod"}   # need patch v4 (general_aoe_mod here: Fire While Hidden, bit SNIPE_BIT)
+SNIPE_COST = 5   # Fire While Hidden: ambushes from cover without giving the unit away
 NOT_FOR_ARTILLERY = {"melee_attack_mod", "melee_defence_mod", "charge_bonus"}   # crews aren't meant to fight (unless their tree says so)
 # Panel column (popup heading container) per bonus / ability.
 COLUMN = {"morale": "leadership", "accuracy_mod": "ranged", "reload": "ranged", "armour_mod": "physical",
           "melee_attack_mod": "melee", "melee_defence_mod": "melee", "scares_men": "leadership",
-          "charge_bonus": "melee", "mod_land_movement_battle": "physical", "ammo_mod": "ranged", "range_mod": "ranged"}
+          "charge_bonus": "melee", "mod_land_movement_battle": "physical", "ammo_mod": "ranged", "range_mod": "ranged",
+          "general_aoe_mod": "ranged"}
 ABILITY_COLUMN = {"rally": "leadership", "inspire_unit": "leadership", "stand_firm": "leadership",
                   "we_stand_and_fight": "leadership", "ganbatte": "leadership",
                   "warcry": "melee", "banzai": "melee", "heroic_assault": "melee", "rapid_advance": "melee",
@@ -169,7 +173,8 @@ PERCENT_SPREAD = {"reload": 100.0,   # percent (or metre) bonuses: a pick's shar
 # How a stat's value reads: (unit after the number in tooltips, effect description text)
 STAT_UNIT = {"reload": ("%", "%+n%% reload skill"), "ammo_mod": ("%", "%+n%% ammunition"),
              "mod_land_movement_battle": ("%", "%+n%% battle speed"), "range_mod": (" m", "%+n m range"),
-             "charge_bonus": ("", "%+n charge bonus")}
+             "charge_bonus": ("", "%+n charge bonus"),
+             "general_aoe_mod": ("", "Can fire while hidden")}
 PASSIVE_COST = 4   # passive unlocks such as Scare Enemies
 STAT_MAX_LEVEL = 10   # each stat line can be bought this many times...
 STAT_MAX_FACTOR = 2   # ...and buying it that often gives about twice the multiplayer maximum
@@ -285,6 +290,8 @@ def rule_fits(ab, keys):
         return not artillery and None not in weapons
     if ab in RULE_BOW:
         return weapons == {"bow"}
+    if ab in RULE_GUN_INFANTRY:
+        return not artillery and weapons <= {"musket", "rifle"} and not any(unit_kind(k)[2] for k in keys)
     if ab in RULE_SAME_KIND:
         return all(unit_kind(k) in NATIVE_KINDS.get(ab, ()) for k in keys)
     return False
@@ -536,10 +543,28 @@ def add_universal_lines(lines, keys, available):
     if "passive_scares_men" not in lines and not artillery and not any(already_scares(k) for k in keys):
         out["passive_scares_men"] = {"key": "passive_scares_men", "label": "Scare Enemies", "bonus": "scares_men",
                                      "advanced": True, "icon": STAT_ICON_PATH, "levels": [1.0], "kind": "passive"}
+    if can_take_snipe(keys):
+        out["passive_snipe"] = {"key": "passive_snipe", "label": "Fire While Hidden", "bonus": "general_aoe_mod",
+                                "advanced": True, "kind": "passive", "cost": SNIPE_COST,
+                                "icon": f"data/ui/frontend ui/skills/{'skill_snipe' if 'skill_snipe' in available else 'skill_morale'}.tga",
+                                "levels": [float(1 << SNIPE_BIT)],
+                                "desc": "This unit stays hidden while it shoots, as long as it isn't spotted."}
     for key, line in lines.items():
         if key not in out:
             out[key] = line
     return out
+
+
+SNIPE_WEAPONS = {"bow", "musket", "rifle", "sling"}
+HIDE_FIELDS = ("hide_medium_woodland", "hide_scrub", "hide_long_grass", "hide_buildings")
+
+
+def can_take_snipe(keys):
+    """Fire While Hidden: units with bows, guns or slings (not rockets, mortars or bombs) that can hide
+    somewhere and can't already."""
+    stats = [STATS.get(k) or {} for k in keys]
+    return (all(s.get("primary_missile_weapon") in SNIPE_WEAPONS for s in stats) and not is_artillery(keys)
+            and all(any(s.get(f) for f in HIDE_FIELDS) for s in stats) and not any(s.get("can_snipe") for s in stats))
 
 
 def fill_median_steps(catalog):
@@ -843,7 +868,7 @@ def lua_data(catalog, camp):
                           "desc": line.get("desc", ""), "gated": line.get("gated", False), "requires": line.get("requires", ""),
                           "levels": [{"bundle": bundle_key(fam["id"], line, i), "value": v,
                                       "cost": ABILITY_COSTS.get(line.get("ability"), ABILITY_COST) if ability
-                                      else (PASSIVE_COST if line["kind"] == "passive" else line["costs"][i - 1])}
+                                      else (line.get("cost", PASSIVE_COST) if line["kind"] == "passive" else line["costs"][i - 1])}
                                      for i, v in enumerate(line["levels"], 1)]})
         fams.append({"id": fam["id"], "name": fam["display"], "portrait": fam["portrait"] or STAT_ICON_PATH,
                      "category": fam["category"], "names": fam["names"], "units": fam["units"], "lines": lines,

@@ -5,7 +5,7 @@ The player patchers ([player/](../player/)) write exactly these bytes; `tools/ve
 re-assembles them from the source below and checks that, on every push (GitHub Actions).
 
 The patch is for `empire.retail.dll` of the Steam Windows build (SHA-256 `022fae2e2da92b59b8b1b8ee52887003c624e3c8eca060b209f5d792a7f874f5`).
-It changes 478 bytes in 15 places and nothing else:
+It changes 524 bytes in 16 places and nothing else:
 
 | What | File offset |
 |---|---|
@@ -18,6 +18,7 @@ It changes 478 bytes in 15 places and nothing else:
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`mod_land_movement_battle`, unit_record id 0x19) | `0x151c46` |
 | Stat hook, land unit stats builder: a `call` now goes to a stat routine (`ammo_mod`, unit_record id 0x18) | `0x151c78` |
 | Range routine, in unused int3 padding: adds the class + unit_record range bonus to the unit's additive range field (the vanilla code multiplied it, and it starts at 0) | `0xb4f20` |
+| Charge routine, in unused int3 padding: the charge lookup as the other stat routines, and sets the unit's "can fire while hidden" flag when bit 23 of the unit type's general_aoe_mod bonus is set | `0x127f232` |
 | Drop-in off: the campaign's drop-in battles flag is always computed as off (the preference defaults to on) | `0x11854bd` |
 | Drop-in off: the drop-in flag's setter always stores off | `0x1188401` |
 | Drop-in off: the handler for a drop-in invitation ("Drop-in battle available") returns before telling the UI | `0x1153316` |
@@ -37,6 +38,8 @@ What it does, in words:
   starts at 0). Each stat hook keeps that lookup and also adds the same kind of
   bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
   for a unit type (see the table below).
+* **Fire while hidden.** The charge routine also sets the unit's "can fire while hidden" flag (as
+  `can_snipe` in the unit's stats) when bit 23 of the unit type's `general_aoe_mod` bonus is set.
 * **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
   modified game file it could get the player's Steam account banned (Valve Anti-Cheat). Invitations
   to join someone else's battle are never shown, and battles are never offered to other players
@@ -76,7 +79,7 @@ Patched:
 Original at 0x10152620 (file offset 0x151a20):
 10152620  e81bcea700       call 0x10bcf440
 Patched:
-10152620  e8f7e64401       call 0x115a0d1c
+10152620  e80dd81201       call 0x1127fe32
 
 Original at 0x1015270d (file offset 0x151b0d):
 1015270d  e82ecda700       call 0x10bcf440
@@ -139,6 +142,71 @@ Patched:
 100b5b34  d99c24c4000000   fstp dword ptr [esp + 0xc4]
 100b5b3b  d9ee             fldz
 100b5b3d  c20800           ret 8
+
+Original at 0x1127fe32 (file offset 0x127f232):
+1127fe32  cc               int3
+1127fe33  cc               int3
+1127fe34  cc               int3
+1127fe35  cc               int3
+1127fe36  cc               int3
+1127fe37  cc               int3
+1127fe38  cc               int3
+1127fe39  cc               int3
+1127fe3a  cc               int3
+1127fe3b  cc               int3
+1127fe3c  cc               int3
+1127fe3d  cc               int3
+1127fe3e  cc               int3
+1127fe3f  cc               int3
+1127fe40  cc               int3
+1127fe41  cc               int3
+1127fe42  cc               int3
+1127fe43  cc               int3
+1127fe44  cc               int3
+1127fe45  cc               int3
+1127fe46  cc               int3
+1127fe47  cc               int3
+1127fe48  cc               int3
+1127fe49  cc               int3
+1127fe4a  cc               int3
+1127fe4b  cc               int3
+1127fe4c  cc               int3
+1127fe4d  cc               int3
+1127fe4e  cc               int3
+1127fe4f  cc               int3
+1127fe50  cc               int3
+1127fe51  cc               int3
+1127fe52  cc               int3
+1127fe53  cc               int3
+1127fe54  cc               int3
+1127fe55  cc               int3
+1127fe56  cc               int3
+1127fe57  cc               int3
+1127fe58  cc               int3
+1127fe59  cc               int3
+1127fe5a  cc               int3
+1127fe5b  cc               int3
+1127fe5c  cc               int3
+1127fe5d  cc               int3
+1127fe5e  cc               int3
+1127fe5f  cc               int3
+Patched:
+1127fe32  51               push ecx
+1127fe33  ff74240c         push dword ptr [esp + 0xc]
+1127fe37  ff74240c         push dword ptr [esp + 0xc]
+1127fe3b  e8dc0e3200       call 0x115a0d1c
+1127fe40  59               pop ecx
+1127fe41  50               push eax
+1127fe42  6a09             push 9
+1127fe44  6a00             push 0
+1127fe46  56               push esi
+1127fe47  6a10             push 0x10
+1127fe49  e8926095ff       call 0x10bd5ee0
+1127fe4e  0fbae017         bt eax, 0x17
+1127fe52  7308             jae 0x1127fe5c
+1127fe54  c68424dc00000001 mov byte ptr [esp + 0xdc], 1
+1127fe5c  58               pop eax
+1127fe5d  c20800           ret 8
 
 Original at 0x111860bd (file offset 0x11854bd):
 111860bd  b001             mov al, 1
@@ -207,7 +275,7 @@ Patched:
 115a0c98  83f909           cmp ecx, 9
 115a0c9b  7760             ja 0x115a0cfd
 115a0c9d  01c8             add eax, ecx
-115a0c9f  83f818           cmp eax, 0x18
+115a0c9f  83f817           cmp eax, 0x17
 115a0ca2  7359             jae 0x115a0cfd
 115a0ca4  52               push edx
 115a0ca5  50               push eax
@@ -273,7 +341,7 @@ key_ok:
     cmp ecx, 9
     ja skip
     add eax, ecx
-    cmp eax, 24
+    cmp eax, 23
     jae skip
     push edx
     push eax

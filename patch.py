@@ -22,7 +22,7 @@ import hashlib, os, shutil, struct, sys
 
 import capstone, keystone, pefile
 
-from abilities import MAX_BITS
+from abilities import MAX_BITS, SNIPE_BIT
 
 GAME = os.environ.get("SHOGUN2_DIR", os.path.expanduser(
     "~/.local/share/Steam/steamapps/common/Total War SHOGUN 2"))
@@ -79,7 +79,7 @@ BONUS_LOOKUP_FLOAT_FN = 0x10BD5E70   # thiscall float(list, category, record, 0,
 CAT_UNIT_CLASS, CAT_UNIT_CATEGORY = 0x0D, 0x0E
 STAT_ID_SHIFT = 0x10
 STAT_HOOKS = [
-    (0x10152620, 0x10BCF440, "int", 0x0B, "charge_bonus"),               # class 11 -> local charge
+    (0x10152620, 0x10BCF440, "charge", 0x0B, "charge_bonus"),            # class 11 -> charge (+ fire while hidden)
     (0x1015270D, 0x10BCF440, "int", 0x04, "reload"),                     # class 4  -> reload skill %
     (0x10152814, 0x10BCF2C0, "range", 0x07, "range_mod"),                # class 7  -> range bonus (added)
     (0x10152846, 0x10BCF2A0, "category_f", 0x09, "mod_land_movement_battle"),  # category 9 -> speed %
@@ -95,6 +95,14 @@ STAT_BONUSES = {name: orig_id + STAT_ID_SHIFT for _, _, _, orig_id, name in STAT
 RANGE_FIELD_AT_ENTRY = 0xC4
 RANGE_VA = 0x100B5B20          # in the 56 bytes of int3 padding at 0x100b5b18..0x100b5b4f
 RANGE_PAD_END = 0x100B5B50
+# Fire while hidden: the stats struct's can_snipe flag (+0x54, from unit_stats_land can_snipe; the
+# constructor FUN_10c0ac90 copies record +0x1f4 there). The charge call's routine also sets it when
+# bit SNIPE_BIT of the unit type's general_aoe_mod bonus is set. At that call the struct is the
+# builder's [esp+0x78] (charge, +0xf0, is its [esp+0x168]), so the flag is [esp+0xd8] at the
+# routine's entry.
+SNIPE_FLAG_AT_ENTRY = 0xD8
+CHARGE_VA = 0x1127FE32         # in the 46 bytes of int3 padding at 0x1127fe32..0x1127fe5f
+CHARGE_PAD_END = 0x1127FE60
 # The engine's own copies of those names (the unit_class/unit_category name tables point at them).
 NAME_VA = {"charge_bonus": 0x1164EA58, "reload": 0x1164EAD4, "range_mod": 0x1164EAEC,
            "mod_land_movement_battle": 0x1164EA68, "ammo_mod": 0x1164DD98}
@@ -275,6 +283,28 @@ ASM_RANGE = f"""
     fldz
     ret 8
 """
+ASM_CHARGE = f"""
+    push ecx
+    push dword ptr [esp + 0xc]
+    push dword ptr [esp + 0xc]
+    call STAT_INT
+    pop ecx
+    push eax
+    push {BONUS_GENERAL_AOE}
+    push 0
+    push esi
+    push {CAT_UNIT_RECORD:#x}
+    call {BONUS_LOOKUP_FN:#x}
+    bt eax, {SNIPE_BIT}
+    jnc done
+    mov byte ptr [esp + {SNIPE_FLAG_AT_ENTRY + 4:#x}], 1
+done:
+    pop eax
+    ret 8
+"""
+# Charge as stat_int (class + unit_record), keeping the container (ecx) for the general_aoe_mod lookup;
+# with the charge result pushed, the flag is at [esp + 4 + SNIPE_FLAG_AT_ENTRY].
+
 # The two pushes repeat the routine's own arguments (class record, bonus id) for stat_class_f, which
 # returns class + unit_record bonus in st(0) and pops them.
 
@@ -327,7 +357,14 @@ def stat_labels():
         prefix = ASM_STATS.split(f"stat_{kind}:")[0]
         labels[kind] = va + len(_asm(prefix, va)) if prefix.strip() else va
     labels["range"] = RANGE_VA
+    labels["charge"] = CHARGE_VA
     return labels
+
+
+def charge_routine():
+    code = _asm(ASM_CHARGE.replace("STAT_INT", hex(stat_labels()["int"])), CHARGE_VA)
+    assert CHARGE_VA + len(code) <= CHARGE_PAD_END, f"charge routine is {len(code):#x} bytes"
+    return code
 
 
 def range_routine():
@@ -395,6 +432,8 @@ def hooks():
         out.append((site, call_bytes(site, target), call_bytes(site, labels[kind])))
     code = range_routine()
     out.append((RANGE_VA, b"\xcc" * len(code), code))
+    code = charge_routine()
+    out.append((CHARGE_VA, b"\xcc" * len(code), code))
     out += DROPIN_PATCHES
     out.append((PARSE_HOOK_VA, PARSE_HOOK_ORIG,
                 jmp_bytes(PARSE_HOOK_VA, CAVE_VA + PARSE_OFFSET, len(PARSE_HOOK_ORIG))))

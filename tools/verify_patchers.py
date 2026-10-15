@@ -87,6 +87,9 @@ def patch_doc():
     hook_names[patch.RANGE_VA] = ("Range routine, in unused int3 padding: adds the class + unit_record range "
                                   "bonus to the unit's additive range field (the vanilla code multiplied it, "
                                   "and it starts at 0)")
+    hook_names[patch.CHARGE_VA] = ("Charge routine, in unused int3 padding: the charge lookup as the other stat "
+                                   "routines, and sets the unit's \"can fire while hidden\" flag when bit "
+                                   f"{patch.SNIPE_BIT} of the unit type's general_aoe_mod bonus is set")
     for site, _, _, orig_id, name in patch.STAT_HOOKS:
         hook_names[site] = (f"Stat hook, land unit stats builder: a `call` now goes to a stat routine "
                             f"(`{name}`, unit_record id {orig_id + patch.STAT_ID_SHIFT:#x})")
@@ -139,6 +142,8 @@ What it does, in words:
   starts at 0). Each stat hook keeps that lookup and also adds the same kind of
   bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
   for a unit type (see the table below).
+* **Fire while hidden.** The charge routine also sets the unit's "can fire while hidden" flag (as
+  `can_snipe` in the unit's stats) when bit 23 of the unit type's `general_aoe_mod` bonus is set.
 * **Drop-in battles off.** A drop-in battle is an online battle against another player, so with a
   modified game file it could get the player's Steam account banned (Valve Anti-Cheat). Invitations
   to join someone else's battle are never shown, and battles are never offered to other players

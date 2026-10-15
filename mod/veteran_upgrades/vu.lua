@@ -452,7 +452,7 @@ local function vu_refresh_panel()
 					owned > 0 and "Unlocked for every " .. fam.name .. "." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points),
 					fam.name, line.gated and ("\nOnly usable once you also have: " .. (line.requires ~= "" and line.requires or "what normally unlocks it") .. ".") or "")
 			elseif line.kind == "passive" then
-				tip = string.format("%s\nThis unit frightens nearby enemies, lowering their morale.\n%s", line.label,
+				tip = string.format("%s\n%s\n%s", line.label, line.desc ~= "" and line.desc or "This unit frightens nearby enemies, lowering their morale.",
 					owned > 0 and "Unlocked." or string.format("Cost: %d points (you have %d).", line.levels[1].cost, p.points))
 			elseif nxt then
 				tip = string.format("%s %s\n+%g%s %s for %s.\nCost: %d point%s (you have %d).",
