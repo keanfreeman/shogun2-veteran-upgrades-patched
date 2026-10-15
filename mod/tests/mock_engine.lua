@@ -106,6 +106,7 @@ UIComponent = function(n)
 		SetStateText = function(s, t) s.n.text = t end, GetStateText = function(s) return s.n.text end,
 		SetState = function(s, st) s.n.state = st end, CurrentState = function(s) return s.n.state end,
 		SetTooltipText = function(s, t, all) s.n.tip = t end, GetTooltipText = function(s) return s.n.tip or "" end,
+		SetDisabled = function(s, b) s.n.disabled = b end,
 		SetInteractive = function(s, b) s.n.interactive = b end, IsInteractive = function(s) return s.n.interactive == true end,
 		ShaderTechniqueSet = function(s, t) s.n.shader = t end,
 		InterfaceFunction = function(s, f) if f == "ItemAddress" then return s.n.unit_ptr end end,

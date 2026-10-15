@@ -88,4 +88,18 @@ local same = true
 for k, v in pairs(oda_before) do if MOCK.saved[k] ~= v then same = false end end
 check(same, "AI levels survive a save/load round trip")
 
+-- Drop-in battles are blocked: the invitation's Yes button when the campaign UI builds that panel,
+-- the pre-battle button once the popup exists.
+local req = MOCK.node("panel_dropin_requester", MOCK.root)
+local yes = MOCK.node("button_yes", req)
+local not_now = MOCK.node("button_not_now", req)
+F("ComponentCreated", { component = req })
+check(yes.visible == false and yes.disabled == true, "drop-in invitation: Yes button hidden")
+check(not_now.visible ~= false, "drop-in invitation: Not now still available")
+check(string.find(yes.tip or "", "account safe", 1, true), "drop-in invitation: tooltip explains why")
+local popup = MOCK.node("popup_pre_battle", MOCK.root)
+local dropin = MOCK.node("button_mp_dropin", popup)
+F("PreBattle", {})
+check(dropin.visible == false and dropin.disabled == true, "pre-battle drop-in button hidden")
+
 RESULT = { passed = passed, failures = failures }

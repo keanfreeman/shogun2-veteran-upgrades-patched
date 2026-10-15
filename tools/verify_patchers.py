@@ -73,11 +73,35 @@ def disasm(code, va):
 
 def patch_doc():
     """docs/PATCH.md: what every changed byte is."""
-    cave = patch.assemble()
-    r1 = cave[:patch.CAVE2_OFFSET].rstrip(b"\xcc")
-    r2 = cave[patch.CAVE2_OFFSET:patch.SIGNATURE_OFFSET].rstrip(b"\xcc")
+    hook_names = {patch.HOOK_VA: "Hook 1, unit-ability builder: a 6-byte branch now jumps to routine 1",
+                  patch.HOOK2_VA: "Hook 2, same loop: a 7-byte instruction pair now jumps to routine 2",
+                  patch.PARSE_HOOK_VA: "Parser hook: the unit_record bonus-name parser's not-found exit "
+                                       "jumps to the parser extension"}
+    for site, _, _, orig_id, name in patch.STAT_HOOKS:
+        hook_names[site] = (f"Stat hook, land unit stats builder: a `call` now goes to a stat routine "
+                            f"(`{name}`, unit_record id {orig_id + patch.STAT_ID_SHIFT:#x})")
+    rows = "\n".join(f"| {hook_names[va]} | `{va2off(va):#x}` |" for va, _, _ in patch.hooks())
     hooks = "\n\n".join(f"Original at {va:#x} (file offset {va2off(va):#x}):\n{disasm(orig, va)}\n"
                          f"Patched:\n{disasm(new, va)}" for va, orig, new in patch.hooks())
+    sources = {"routine 1 (abilities)": patch.ASM, "routine 2 (abilities)": patch.ASM2,
+               "stat routines": patch.ASM_STATS, "parser extension": patch.ASM_PARSE}
+    blocks = []
+    for name, va, code in patch.routines():
+        text = disasm(code, va)
+        if name == "parser extension":   # code, then the name table (data)
+            n = len(patch._asm(patch.ASM_PARSE.replace("TABLE_DELTA", "0x7f"), va))
+            text = disasm(code[:n], va) + "\n\nName table (int32 name VA minus entry VA, then the id byte; 0 ends it):\n"
+            text += "\n".join(f"{va + n + 5 * i:08x}  {code[n + 5 * i:n + 5 * i + 5].hex()}  {nm} -> {bid:#x}"
+                              for i, (nm, bid) in enumerate(patch.STAT_BONUSES.items()))
+        blocks.append(f"## {name[0].upper() + name[1:]} (`{va:#x}`)\n\n```\n{text}\n```\n\n"
+                      f"Source (keystone syntax, from patch.py):\n\n```\n{sources[name].strip()}\n```\n")
+    stats = "\n".join(f"| `{name}` | {what} |" for name, what in [
+        ("charge_bonus", "charge bonus, added to the unit class's"),
+        ("reload", "reload skill %, added to the unit class's"),
+        ("range_mod", "missile range %, added to the unit class's"),
+        ("mod_land_movement_battle", "battle speed %, added to the unit category's"),
+        ("ammo_mod", "ammunition %, added to the unit class's")])
+    places = len(patch.hooks()) + 2
     return f"""# What the patch changes
 
 Generated from [patch.py](../patch.py) by `tools/verify_patchers.py --write-doc` - do not edit.
@@ -85,22 +109,33 @@ The player patchers ([player/](../player/)) write exactly these bytes; `tools/ve
 re-assembles them from the source below and checks that, on every push (GitHub Actions).
 
 The patch is for `empire.retail.dll` of the Steam Windows build (SHA-256 `{patch.VANILLA_SHA256}`).
-It changes {sum(1 for a, b in expected_changes().values() if a != b)} bytes in four places and nothing else:
+It changes {sum(1 for a, b in expected_changes().values() if a != b)} bytes in {places} places and nothing else:
 
-| Where | File offset | What |
-|---|---|---|
-| `.text` section header, VirtualSize | `{VSIZE_OFFSET:#x}` | {VSIZE_VANILLA:#x} -> {patch.TEXT_VSIZE_PATCHED:#x}: the section's unused tail (zero bytes already in the file) becomes part of the code |
-| Hook 1, in the unit-ability builder | `{va2off(patch.HOOK_VA):#x}` | a 6-byte branch now jumps to routine 1 |
-| Hook 2, same loop | `{va2off(patch.HOOK2_VA):#x}` | a 7-byte instruction pair now jumps to routine 2 |
-| New code in the unused tail | `{va2off(patch.CAVE_VA):#x}` | routine 1, routine 2 and the signature `{patch.SIGNATURE.rstrip(bytes(1)).decode()}` |
+| What | File offset |
+|---|---|
+| `.text` section header, VirtualSize: {VSIZE_VANILLA:#x} -> {patch.TEXT_VSIZE_PATCHED:#x}, so the section's unused tail (zero bytes already in the file) becomes part of the code | `{VSIZE_OFFSET:#x}` |
+{rows}
+| New code in the unused tail: the routines below and the signature `{patch.SIGNATURE.rstrip(bytes(1)).decode()}` | `{va2off(patch.CAVE_VA):#x}` |
 
-What it does, in words: when the game builds a unit's list of battle abilities, an ability that needs
-unlocking and isn't unlocked normally gets skipped. Hook 1 sends that case to routine 1, which only acts
-on the mod's own "clone" ability records (keys `vuNN_...`): it reads the unit type's `general_aoe_mod`
-bonus, and if bit NN is set (and any research the real ability needs is done) it adds the real ability
-instead of skipping. Hook 2 restores the loop's position afterwards. The new code calls only two of the
-game's own functions (its bonus lookup and its research check), allocates nothing, and touches no files,
-network or other programs.
+What it does, in words:
+
+* **Abilities.** When the game builds a unit's list of battle abilities, an ability that needs
+  unlocking and isn't unlocked normally gets skipped. Hook 1 sends that case to routine 1, which only
+  acts on the mod's own "clone" ability records (keys `vuNN_...`): it reads the unit type's
+  `general_aoe_mod` bonus, and if bit NN is set (and any research the real ability needs is done) it
+  adds the real ability instead of skipping. Hook 2 restores the loop's position afterwards.
+* **Stats.** The game adds clan bonuses to a land unit's charge, reload, range, speed and ammunition
+  only per unit class or category. Each stat hook keeps that lookup and also adds the same kind of
+  bonus for the unit's own type (unit_record). The parser extension lets effects name these bonuses
+  for a unit type:
+
+| unit_record bonus | adds |
+|---|---|
+{stats}
+
+The new code calls only the game's own functions (its bonus lookups, its research check and the name
+comparison the parser already uses), allocates nothing, and touches no files, network or other programs.
+It uses no absolute addresses, so it works wherever Windows loads the DLL.
 
 ## Hooks
 
@@ -108,30 +143,7 @@ network or other programs.
 {hooks}
 ```
 
-## Routine 1 (`{patch.CAVE_VA:#x}`)
-
-```
-{disasm(r1, patch.CAVE_VA)}
-```
-
-Source (keystone syntax, from patch.py):
-
-```
-{patch.ASM.strip()}
-```
-
-## Routine 2 (`{patch.CAVE_VA + patch.CAVE2_OFFSET:#x}`)
-
-```
-{disasm(r2, patch.CAVE_VA + patch.CAVE2_OFFSET)}
-```
-
-Source:
-
-```
-{patch.ASM2.strip()}
-```
-"""
+""" + "\n".join(blocks)
 
 
 def main():

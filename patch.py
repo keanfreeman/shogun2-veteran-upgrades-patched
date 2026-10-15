@@ -63,9 +63,39 @@ KEY_LENGTH, KEY_DATA = 0x0, 0x8
 
 TEXT_VSIZE_PATCHED = 0x159FE00  # .text VirtualSize grown to its raw size, so the tail is code
 CAVE_VA = BASE + 0x1000 + 0x159FC40
-CAVE2_OFFSET = 0xE0             # hook-2 routine
-SIGNATURE_OFFSET = 0x150        # ASCII signature + version, for mods to detect the patch
-SIGNATURE = b"VU_ABILITY_PATCH 3\0"
+CAVE2_OFFSET = 0xC4             # hook-2 routine
+STATS_OFFSET = 0xDC             # per-unit-type stat routines (v4)
+SIGNATURE_OFFSET = 0x150        # ASCII signature + version, for mods to detect the patch (fixed since v2)
+PARSE_OFFSET = 0x164            # bonus-name parser extension + its name table (v4)
+CAVE_END = 0x1C0                # end of the .text tail
+SIGNATURE = b"VU_ABILITY_PATCH 4\0"
+
+# v4: per-unit-type stats. The land unit stats builder FUN_10151f10 adds clan bonuses to a unit's stats
+# from the unit's class (category 13) or category (14) only. Each hooked call below still makes that
+# lookup, then also adds the unit_record (16) bonus with id = the original id + 0x10, for the unit
+# record in esi (the builder keeps it there at all five calls).
+#   (call site, original target, kind, bonus name the parser accepts at unit_record scope)
+BONUS_LOOKUP_FLOAT_FN = 0x10BD5E70   # thiscall float(list, category, record, 0, bonus_id), in st(0)
+CAT_UNIT_CLASS, CAT_UNIT_CATEGORY = 0x0D, 0x0E
+STAT_ID_SHIFT = 0x10
+STAT_HOOKS = [
+    (0x10152620, 0x10BCF440, "int", 0x0B, "charge_bonus"),               # class 11 -> local charge
+    (0x1015270D, 0x10BCF440, "int", 0x04, "reload"),                     # class 4  -> reload skill %
+    (0x10152814, 0x10BCF2C0, "class_f", 0x07, "range_mod"),              # class 7  -> range %
+    (0x10152846, 0x10BCF2A0, "category_f", 0x09, "mod_land_movement_battle"),  # category 9 -> speed %
+    (0x10152878, 0x10BCF2C0, "class_f", 0x08, "ammo_mod"),               # class 8  -> ammo %
+]
+STAT_BONUSES = {name: orig_id + STAT_ID_SHIFT for _, _, _, orig_id, name in STAT_HOOKS}
+# The engine's own copies of those names (the unit_class/unit_category name tables point at them).
+NAME_VA = {"charge_bonus": 0x1164EA58, "reload": 0x1164EAD4, "range_mod": 0x1164EAEC,
+           "mod_land_movement_battle": 0x1164EA68, "ammo_mod": 0x1164DD98}
+# FUN_10bd3d30 maps a unit_record bonus name to its id (13 names; 13 = not found). Its not-found exit
+#   10bd3d5d pop edi / mov eax,0xd / pop esi / ret
+# jumps to our extension, which also accepts the five names above.
+PARSE_HOOK_VA = 0x10BD3D5D
+PARSE_HOOK_ORIG = bytes.fromhex("5fb80d0000005ec3")
+NAME_MATCH_FN = 0x100EE2D0           # thiscall bool(UniString*, const char*): the parser's comparison
+UNIT_RECORD_BONUS_COUNT = 0x0D
 
 ASM = f"""
     test eax, eax
@@ -152,30 +182,172 @@ advance:
 """
 # eax is free at hook 2: the instruction after the resume point (1019e6fc) reloads it.
 
+# Stat routines replace `call <class/category lookup wrapper>` (thiscall(record, id), ret 8). Each one
+# makes the wrapper's own lookup, then adds the unit_record lookup for id + 0x10 (record = esi).
+# Every caller reloads ecx before its next call and keeps nothing in edx, so both are free here.
+ASM_STATS = f"""
+stat_int:
+    push ecx
+    push dword ptr [esp + 0xc]
+    push 0
+    push dword ptr [esp + 0x10]
+    push {CAT_UNIT_CLASS:#x}
+    call {BONUS_LOOKUP_FN:#x}
+    pop ecx
+    push eax
+    mov eax, dword ptr [esp + 0xc]
+    add eax, {STAT_ID_SHIFT:#x}
+    push eax
+    push 0
+    push esi
+    push {CAT_UNIT_RECORD:#x}
+    call {BONUS_LOOKUP_FN:#x}
+    pop edx
+    add eax, edx
+    ret 8
+stat_f:
+    pop eax
+    push ecx
+    push dword ptr [esp + 0xc]
+    push 0
+    push dword ptr [esp + 0x10]
+    push eax
+    call {BONUS_LOOKUP_FLOAT_FN:#x}
+    pop ecx
+    push eax
+    fstp dword ptr [esp]
+    mov eax, dword ptr [esp + 0xc]
+    add eax, {STAT_ID_SHIFT:#x}
+    push eax
+    push 0
+    push esi
+    push {CAT_UNIT_RECORD:#x}
+    call {BONUS_LOOKUP_FLOAT_FN:#x}
+    fadd dword ptr [esp]
+    pop eax
+    ret 8
+stat_category_f:
+    push {CAT_UNIT_CATEGORY:#x}
+    jmp stat_f
+stat_class_f:
+    push {CAT_UNIT_CLASS:#x}
+    jmp stat_f
+"""
+# Stack at entry: [esp] return, [esp+4] class/category record, [esp+8] bonus id. After `push ecx` they
+# are +4/+8/+0xc; the first two pushes for the lookup move the record to +0x10. After `pop ecx` and
+# `push eax` (the first result, or a slot for it) the id is at +0xc again.
+
+# Parser extension. Table entries: int32 (name VA - entry VA, so no relocation is needed under ASLR),
+# then the id byte; a zero int32 ends it. esi/edi are the parser's (callee-saved, pushed on entry).
+ASM_PARSE = f"""
+    call here
+here:
+    pop esi
+    add esi, TABLE_DELTA
+next_name:
+    mov eax, dword ptr [esi]
+    test eax, eax
+    jz not_found
+    add eax, esi
+    push eax
+    mov ecx, edi
+    call {NAME_MATCH_FN:#x}
+    test al, al
+    jnz found
+    add esi, 5
+    jmp next_name
+found:
+    movzx eax, byte ptr [esi + 4]
+    jmp done
+not_found:
+    mov eax, {UNIT_RECORD_BONUS_COUNT:#x}
+done:
+    pop edi
+    pop esi
+    ret
+"""
+
 
 def _ks():
     return keystone.Ks(keystone.KS_ARCH_X86, keystone.KS_MODE_32)
 
 
+def _asm(src, va):
+    return bytes(_ks().asm(src, va)[0])
+
+
+def stat_labels():
+    """Entry point of each stat routine kind, as VAs."""
+    va = CAVE_VA + STATS_OFFSET
+    # keystone has no symbol export: assemble the code up to each label to get its offset (the entry
+    # stubs come last, so every prefix only refers back to labels it contains)
+    labels = {}
+    for kind in ("int", "category_f", "class_f"):
+        prefix = ASM_STATS.split(f"stat_{kind}:")[0]
+        labels[kind] = va + len(_asm(prefix, va)) if prefix.strip() else va
+    return labels
+
+
+def parse_routine():
+    """Parser extension + name table, at PARSE_OFFSET."""
+    va = CAVE_VA + PARSE_OFFSET
+    here = va + 5                               # after the 5-byte call
+    code = _asm(ASM_PARSE.replace("TABLE_DELTA", "0x7f"), va)   # imm8 placeholder sizes the add
+    table_va = va + len(code)
+    code = _asm(ASM_PARSE.replace("TABLE_DELTA", hex(table_va - here)), va)
+    assert va + len(code) == table_va, "parser routine size changed with the real delta"
+    table = bytearray()
+    for name, bonus_id in STAT_BONUSES.items():
+        entry_va = table_va + len(table)
+        table += struct.pack("<iB", NAME_VA[name] - entry_va, bonus_id)
+    return code + bytes(table) + struct.pack("<i", 0)
+
+
 def assemble():
-    """Patch area bytes: routine 1, routine 2, signature."""
-    ks = _ks()
-    code = bytes(ks.asm(ASM, CAVE_VA)[0])
-    code2 = bytes(ks.asm(ASM2, CAVE_VA + CAVE2_OFFSET)[0])
-    assert len(code) <= CAVE2_OFFSET and CAVE2_OFFSET + len(code2) <= SIGNATURE_OFFSET
-    out = bytearray(b"\xcc" * SIGNATURE_OFFSET)
+    """Patch area bytes: routine 1, routine 2, stat routines, signature, parser extension."""
+    code = _asm(ASM, CAVE_VA)
+    code2 = _asm(ASM2, CAVE_VA + CAVE2_OFFSET)
+    stats = _asm(ASM_STATS, CAVE_VA + STATS_OFFSET)
+    parse = parse_routine()
+    assert len(code) <= CAVE2_OFFSET, f"routine 1 is {len(code):#x} bytes"
+    assert CAVE2_OFFSET + len(code2) <= STATS_OFFSET, f"routine 2 is {len(code2):#x} bytes"
+    assert STATS_OFFSET + len(stats) <= SIGNATURE_OFFSET, f"stat routines are {len(stats):#x} bytes"
+    assert SIGNATURE_OFFSET + len(SIGNATURE) <= PARSE_OFFSET
+    assert PARSE_OFFSET + len(parse) <= CAVE_END, f"parser extension is {len(parse):#x} bytes"
+    out = bytearray(b"\xcc" * PARSE_OFFSET)
     out[:len(code)] = code
     out[CAVE2_OFFSET:CAVE2_OFFSET + len(code2)] = code2
-    return bytes(out) + SIGNATURE
+    out[STATS_OFFSET:STATS_OFFSET + len(stats)] = stats
+    out[SIGNATURE_OFFSET:SIGNATURE_OFFSET + len(SIGNATURE)] = SIGNATURE
+    return bytes(out) + parse
+
+
+def routines():
+    """(name, VA, bytes) of each piece of new code/data, for show and docs."""
+    cave = assemble()
+    return [("routine 1 (abilities)", CAVE_VA, cave[:CAVE2_OFFSET].rstrip(b"\xcc")),
+            ("routine 2 (abilities)", CAVE_VA + CAVE2_OFFSET, cave[CAVE2_OFFSET:STATS_OFFSET].rstrip(b"\xcc")),
+            ("stat routines", CAVE_VA + STATS_OFFSET, cave[STATS_OFFSET:SIGNATURE_OFFSET].rstrip(b"\xcc")),
+            ("parser extension", CAVE_VA + PARSE_OFFSET, cave[PARSE_OFFSET:])]
 
 
 def jmp_bytes(src, dst, length):
     return b"\xe9" + struct.pack("<i", dst - (src + 5)) + b"\x90" * (length - 5)
 
 
+def call_bytes(src, dst):
+    return b"\xe8" + struct.pack("<i", dst - (src + 5))
+
+
 def hooks():
-    return [(HOOK_VA, HOOK_ORIG, jmp_bytes(HOOK_VA, CAVE_VA, len(HOOK_ORIG))),
-            (HOOK2_VA, HOOK2_ORIG, jmp_bytes(HOOK2_VA, CAVE_VA + CAVE2_OFFSET, len(HOOK2_ORIG)))]
+    labels = stat_labels()
+    out = [(HOOK_VA, HOOK_ORIG, jmp_bytes(HOOK_VA, CAVE_VA, len(HOOK_ORIG))),
+           (HOOK2_VA, HOOK2_ORIG, jmp_bytes(HOOK2_VA, CAVE_VA + CAVE2_OFFSET, len(HOOK2_ORIG)))]
+    for site, target, kind, _, _ in STAT_HOOKS:
+        out.append((site, call_bytes(site, target), call_bytes(site, labels[kind])))
+    out.append((PARSE_HOOK_VA, PARSE_HOOK_ORIG,
+                jmp_bytes(PARSE_HOOK_VA, CAVE_VA + PARSE_OFFSET, len(PARSE_HOOK_ORIG))))
+    return out
 
 
 def sha256(path):
@@ -204,6 +376,11 @@ def check_relocs(pe, ranges):
                     raise SystemExit(f"relocation at {va:#x} overlaps the patch range {lo:#x}-{hi:#x}")
 
 
+def va2off_any(pe, va):
+    """File offset of a VA in any section (the bonus names live in .rdata)."""
+    return pe.get_offset_from_rva(va - BASE)
+
+
 def file_offsets(data=None):
     """File offsets a mod script can read to detect the patch."""
     if data is None:
@@ -223,6 +400,8 @@ def patched_image(data):
     assert text.Misc_VirtualSize <= CAVE_VA - BASE - text.VirtualAddress
     assert CAVE_VA + len(cave) <= BASE + text.VirtualAddress + TEXT_VSIZE_PATCHED
     assert set(data[cave_off:cave_off + len(cave)]) <= {0}, "cave area is not empty"
+    for name, va in NAME_VA.items():
+        assert data[va2off_any(pe, va):va2off_any(pe, va) + len(name) + 1] == name.encode() + b"\0", name
     check_relocs(pe, [(va, va + len(orig)) for va, orig, _ in hooks()])
     out = bytearray(data)
     for va, _, new in hooks():
@@ -242,11 +421,9 @@ def cmd_show():
     for va, orig, new in hooks():
         print(f"hook @ {va:#x}: {orig.hex()} -> {new.hex()}")
         disasm(new, va)
-    cave = assemble()
-    print(f"routine 1 @ {CAVE_VA:#x}:")
-    disasm(cave[:CAVE2_OFFSET].rstrip(b"\xcc"), CAVE_VA)
-    print(f"routine 2 @ {CAVE_VA + CAVE2_OFFSET:#x}:")
-    disasm(cave[CAVE2_OFFSET:SIGNATURE_OFFSET].rstrip(b"\xcc"), CAVE_VA + CAVE2_OFFSET)
+    for name, va, code in routines():
+        print(f"{name} @ {va:#x}:")
+        disasm(code, va)
     print(f"signature @ {CAVE_VA + SIGNATURE_OFFSET:#x}: {SIGNATURE!r}")
     print("file offsets for detection:", {k: hex(v) for k, v in file_offsets().items()})
 

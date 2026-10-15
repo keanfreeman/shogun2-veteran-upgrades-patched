@@ -1011,6 +1011,33 @@ local function vu_open_for_card(card)
 end
 
 -------------------------------------------------------------------------------
+-- Drop-in battles: online battles against another player, so with the game patch installed they
+-- could get the player's Steam account banned (Valve Anti-Cheat). The two ways in are hidden: the
+-- pre-battle "drop-in battle" button (another player takes over the enemy) and the Yes button of the
+-- "Drop-in battle available" invitation to join someone else's battle (panel_dropin_requester, built
+-- by the campaign UI when an invitation arrives; "Not now" still declines it). Main-menu multiplayer is switched off in the layouts (build.py).
+-------------------------------------------------------------------------------
+local VU_DROPIN_TIP = "Drop-in battles are off to keep your account safe: " .. VU_TITLE
+	.. " modifies a game file, and Shogun 2's online play uses Valve Anti-Cheat."
+local function vu_block_dropin()
+	if not VU.root_addr then return end
+	local function off(addr)
+		if not addr then return false end
+		pcall(function()
+			local c = UIComponent(addr)
+			c:SetTooltipText(VU_DROPIN_TIP, true)
+			c:SetDisabled(true)
+			c:SetVisible(false)
+		end)
+		return true
+	end
+	local hid = off(vu_child(VU.root_addr, "button_mp_dropin"))
+	local req = vu_child(VU.root_addr, "panel_dropin_requester")
+	if req then hid = off(vu_child(req, "button_yes")) or hid end
+	if VU_DEBUG and hid then vu_log("drop-in controls hidden") end
+end
+
+-------------------------------------------------------------------------------
 -- Events
 -------------------------------------------------------------------------------
 local function VU_OnUICreated(context)
@@ -1030,7 +1057,31 @@ local function VU_OnUICreated(context)
 		vu_log("==== " .. VU_TITLE .. " " .. VU_VERSION .. " loaded; player", tostring(VU.player),
 			"; ability patch", VU_PATCH and ("v" .. VU_PATCH) or "NOT installed", "====")
 		vu_guard("create hud button", vu_create_hud_button)
+		vu_guard("block drop-in", vu_block_dropin)
 		if VU.panel then VU.panel:SetVisible(false) end
+	end)
+end
+
+-- The pre-battle popup is built when a battle is about to start, after these events, and the drop-in
+-- invitation whenever one arrives: look for their buttons shortly after (twice, in case the panel is
+-- slow to appear, and after the panel's own Initialise has run).
+local function VU_OnPreBattle(context)
+	vu_guard("PreBattle", function()
+		EpisodicScripting.game_interface:add_time_trigger("vu_dropin", 0.1)
+		EpisodicScripting.game_interface:add_time_trigger("vu_dropin", 1)
+	end)
+end
+
+local function VU_OnComponentCreated(context)
+	vu_guard("ComponentCreated", function()
+		local id = ""
+		pcall(function() id = tostring(UIComponent(context.component):Id()) end)
+		if VU_DEBUG and string.find(string.lower(id .. tostring(context.string)), "drop", 1, true) then
+			vu_log("component created:", id, tostring(context.string))
+		end
+		if id == "panel_dropin_requester" or context.string == "panel_dropin_requester" then
+			VU_OnPreBattle(context)
+		end
 	end)
 end
 
@@ -1306,6 +1357,25 @@ local function vu_army_position(char)
 	return nil
 end
 
+-- Debug: each of the player's units' own stats next to its unit record's (base) stats, to see which
+-- clan bonuses the game applied (patch v4 stat checks).
+local VU_STAT_FIELDS = { "Melee", "Defence", "Charge", "Accuracy", "Range", "Ammunition", "Reloading", "Speed", "Morale" }
+local function vu_dump_unit_stats()
+	for _, f in ipairs(CampaignUI.RetrieveFactionMilitaryForceLists(VU.player, true) or {}) do
+		local ents = CampaignUI.RetrieveContainedEntitiesFromCharacter(f.Address, f.Address)
+		for _, u in ipairs(ents and ents.Units or {}) do
+			local d = CampaignUI.InitialiseUnitDetails(u.Address)
+			if d and d.UnitRecord then
+				local parts = {}
+				for _, k in ipairs(VU_STAT_FIELDS) do
+					parts[#parts + 1] = k .. " " .. tostring(d[k]) .. "/" .. tostring(d.UnitRecord[k])
+				end
+				vu_log("stats:", tostring(d.UnitRecord.Key), "(unit/base)", table.concat(parts, ", "))
+			end
+		end
+	end
+end
+
 local function vu_retrain(fam)
 	local armies = vu_retrain_candidates(fam)
 	if #armies == 0 then vu_log("retrain:", fam.id, "nothing to retrain", VU.retrain_why or "") return end
@@ -1482,6 +1552,7 @@ end
 local function vu_handle_click(addr, id)
 	-- The HUD button toggles the list even while the panel is open.
 	if id == "vu_button" then
+		if VU_DEBUG then vu_guard("stat dump", vu_dump_unit_stats) end
 		if VU.panel and VU.panel:Visible() then
 			VU.from_list = false
 			vu_close(false)
@@ -1549,6 +1620,7 @@ local function VU_OnComponentLClickUp(context)
 end
 
 local function VU_OnTimeTrigger(context)
+	if context.string == "vu_dropin" then vu_guard("block drop-in", vu_block_dropin) return end
 	if context.string ~= "vu_click" then return end
 	vu_guard("click", function()
 		local c = VU.click
@@ -1572,6 +1644,9 @@ for _, reg in ipairs({
 	{ "UnitCompletedBattle", VU_OnUnitCompletedBattle },
 	{ "ComponentLClickUp", VU_OnComponentLClickUp },
 	{ "TimeTrigger", VU_OnTimeTrigger },
+	{ "PreBattle", VU_OnPreBattle },
+	{ "PanelOpenedCampaign", VU_OnPreBattle },
+	{ "ComponentCreated", VU_OnComponentCreated },
 }) do
 	local ok, err = pcall(EpisodicScripting.AddEventCallBack, reg[1], reg[2])
 	if not ok then vu_log("AddEventCallBack failed for", reg[1], tostring(err)) end
