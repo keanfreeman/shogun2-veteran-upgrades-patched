@@ -2,6 +2,9 @@
 
     <lab venv python> tools/release.py            # build + test + dist/ + zip
     <lab venv python> tools/release.py --install  # ...and copy pack + thumbnail into the game's data folder
+    <python> tools/release.py --snapshot DIR      # without the game: build from a recorded snapshot
+                                                  # (../tools/snapshot.py); no thumbnail, and the patcher
+                                                  # check is left to CI (tools/verify_patchers.py)
 
 dist/ gets (and the zip "Veteran-Upgrades-Patched-Edition-for-MoSS-<version>.zip" holds the same):
   veteran_upgrades_moss_patched.pack        the mod (release build, no debug logging)
@@ -68,16 +71,24 @@ def version():
 
 def main():
     install = "--install" in sys.argv
-    run(sys.executable, "veteran_upgrades/build.py")
+    snapshot = sys.argv[sys.argv.index("--snapshot") + 1] if "--snapshot" in sys.argv else None
+    if snapshot and install:
+        raise SystemExit("--install needs the game, not a snapshot")
+    if snapshot:
+        run(sys.executable, "../tools/snapshot.py", "replay", os.path.abspath(snapshot), "--", "veteran_upgrades/build.py")
+    else:
+        run(sys.executable, "veteran_upgrades/build.py")
     run(sys.executable, "tests/run_tests.py")
-    run(os.path.join(os.path.dirname(ROOT), ".venv", "bin", "python"), "../tools/make_patchers.py", "--check")
+    if not snapshot:   # needs the vanilla game DLL
+        run(os.path.join(os.path.dirname(ROOT), ".venv", "bin", "python"), "../tools/make_patchers.py", "--check")
     if os.path.exists(DIST):
         shutil.rmtree(DIST)
     os.makedirs(os.path.join(DIST, "patcher"))
     shutil.copy(PACK, DIST)
-    thumbnail(os.path.join(DIST, NAME + ".jpg"))
-    from PIL import Image
-    Image.open(os.path.join(DIST, NAME + ".jpg")).save(os.path.join(DIST, NAME + ".png"))
+    if not snapshot:   # the thumbnail uses the game's unit art
+        thumbnail(os.path.join(DIST, NAME + ".jpg"))
+        from PIL import Image
+        Image.open(os.path.join(DIST, NAME + ".jpg")).save(os.path.join(DIST, NAME + ".png"))
     for f in sorted(os.listdir(PLAYER)):
         shutil.copy(os.path.join(PLAYER, f), os.path.join(DIST, "patcher", f))
     text = open(os.path.join(ROOT, "docs", "player_readme.txt"), encoding="utf-8").read().replace("@VERSION@", version())

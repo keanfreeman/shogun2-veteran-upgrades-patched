@@ -44,8 +44,9 @@ IMPORTANT - read before installing
 Install
 -------
 1. Quit Shogun 2 (and its launcher).
-2. Copy veteran_upgrades_moss_patched.pack and veteran_upgrades_moss_patched.png into the game's
-   data folder, usually:  C:\Program Files (x86)\Steam\steamapps\common\Total War SHOGUN 2\data
+2. Copy veteran_upgrades_moss_patched.pack (and veteran_upgrades_moss_patched.png, if the zip has
+   one: it's the launcher thumbnail) into the game's data folder, usually:
+   C:\Program Files (x86)\Steam\steamapps\common\Total War SHOGUN 2\data
 3. Patch the game (the same patch as the Patched Edition's; "Already patched." if it is):
    Windows:  open the "patcher" folder and double-click "Install patch.bat".
              If Windows warns about the file, click "More info", then "Run anyway" (or, before
