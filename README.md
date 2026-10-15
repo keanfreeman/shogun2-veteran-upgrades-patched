@@ -235,6 +235,7 @@ touches a patched byte.
 | [tools/emulate_patch.py](tools/emulate_patch.py) | Runs each new routine in an emulated x86 CPU (unicorn) with stand-ins for the game's functions: results, stack, registers, x87, and the same at a shifted address (ASLR) (CI) |
 | [abilities.py](abilities.py), [detect.lua](detect.lua) | Clone keys and bit assignment; patch detection for mod scripts |
 | [mod/](mod/) | The mod: a copy of Veteran Upgrades 1.1.0 using the patch (`mod/README.md`) |
+| [mod-moss/](mod-moss/) | The same mod for the Master of Strategy Sengoku overhaul: MoSS's units, clans and abilities, same patch (`mod-moss/README.md`) |
 | [testpack/](testpack/) | Minimal test mods for the patch: abilities (`build_testpack.py`), stats (`build_statpack.py`) |
 
 ### Building
