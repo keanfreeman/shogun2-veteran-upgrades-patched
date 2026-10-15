@@ -1014,8 +1014,8 @@ end
 -- Drop-in battles: online battles against another player, so with the game patch installed they
 -- could get the player's Steam account banned (Valve Anti-Cheat). The two ways in are hidden: the
 -- pre-battle "drop-in battle" button (another player takes over the enemy) and the Yes button of the
--- "Drop-in battle available" invitation to join someone else's battle (panel_dropin_requester, built
--- by the campaign UI when an invitation arrives; "Not now" still declines it). Main-menu multiplayer is switched off in the layouts (build.py).
+-- "Drop-in battle available" invitation to join someone else's battle (panel_dropin_requester, if it
+-- exists when we look; patch v4 stops invitations before that panel is built, and hosting too). Main-menu multiplayer is switched off in the layouts (build.py).
 -------------------------------------------------------------------------------
 local VU_DROPIN_TIP = "Drop-in battles are off to keep your account safe: " .. VU_TITLE
 	.. " modifies a game file, and Shogun 2's online play uses Valve Anti-Cheat."
@@ -1062,9 +1062,9 @@ local function VU_OnUICreated(context)
 	end)
 end
 
--- The pre-battle popup is built when a battle is about to start, after these events, and the drop-in
--- invitation whenever one arrives: look for their buttons shortly after (twice, in case the panel is
--- slow to appear, and after the panel's own Initialise has run).
+-- The pre-battle popup is built when a battle is about to start, after these events: look for its
+-- drop-in button shortly after (twice, in case the popup is slow to appear). (Not ComponentCreated:
+-- handling it while the campaign UI is being built crashed the game at campaign start.)
 local function VU_OnPreBattle(context)
 	vu_guard("PreBattle", function()
 		EpisodicScripting.game_interface:add_time_trigger("vu_dropin", 0.1)
@@ -1072,18 +1072,6 @@ local function VU_OnPreBattle(context)
 	end)
 end
 
-local function VU_OnComponentCreated(context)
-	vu_guard("ComponentCreated", function()
-		local id = ""
-		pcall(function() id = tostring(UIComponent(context.component):Id()) end)
-		if VU_DEBUG and string.find(string.lower(id .. tostring(context.string)), "drop", 1, true) then
-			vu_log("component created:", id, tostring(context.string))
-		end
-		if id == "panel_dropin_requester" or context.string == "panel_dropin_requester" then
-			VU_OnPreBattle(context)
-		end
-	end)
-end
 
 local VU_LOCK_ALL, VU_PRELOCK   -- set by the recruitment code below
 
@@ -1646,7 +1634,6 @@ for _, reg in ipairs({
 	{ "TimeTrigger", VU_OnTimeTrigger },
 	{ "PreBattle", VU_OnPreBattle },
 	{ "PanelOpenedCampaign", VU_OnPreBattle },
-	{ "ComponentCreated", VU_OnComponentCreated },
 }) do
 	local ok, err = pcall(EpisodicScripting.AddEventCallBack, reg[1], reg[2])
 	if not ok then vu_log("AddEventCallBack failed for", reg[1], tostring(err)) end
