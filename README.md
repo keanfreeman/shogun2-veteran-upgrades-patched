@@ -2,6 +2,9 @@
 
 *A single-player mod for **Total War: Shogun 2***
 
+Works in all three campaigns: **Sengoku Jidai**, **Rise of the Samurai** and **Fall of the Samurai**.
+Playing the **Master of Strategy Sengoku (MoSS)** overhaul? Use the [MoSS version](#two-editions).
+
 [![Verify patchers](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/actions/workflows/verify.yml/badge.svg)](https://github.com/keanfreeman/shogun2-veteran-upgrades-patched/actions/workflows/verify.yml)
 
 Your clan earns a point for every battle it fights and spends points on **upgrades for each unit type**:
